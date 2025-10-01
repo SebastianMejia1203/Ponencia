@@ -1,0 +1,172 @@
+<hlm-dialog>
+  <button #hiddenTrigger brnDialogTrigger hlmBtn variant="default" style="display: none;">Hidden Trigger</button>
+
+  <hlm-dialog-content class="sm:max-w-[600px] max-h-[90vh] panel" *brnDialogContent="let ctx">
+    <hlm-dialog-header>
+      <h3 hlmDialogTitle>Crear Nuevo Proyecto</h3>
+      <p hlmDialogDescription>
+        Configure los parámetros iniciales para su proyecto de YOLO.
+        Se creará la estructura de carpetas automáticamente.
+      </p>
+    </hlm-dialog-header>
+
+    <div class="grid gap-6 py-4">
+      <!-- Información Básica -->
+      <div class="space-y-4">
+        <h4 class="text-sm font-medium text-gray-900">Información Básica</h4>
+
+        <div class="grid grid-cols-4 items-center gap-4">
+          <label hlmLabel for="project-name" class="text-right">Nombre</label>
+          <input hlmInput id="project-name" [(ngModel)]="projectForm.name" placeholder="Mi Proyecto YOLO"
+            class="col-span-3" />
+        </div>
+
+        <div class="grid grid-cols-4 items-center gap-4">
+          <label hlmLabel for="project-description" class="text-right">Descripción</label>
+          <textarea hlmInput id="project-description" [(ngModel)]="projectForm.description"
+            placeholder="Descripción del proyecto (opcional)" class="col-span-3 resize-none" rows="3"></textarea>
+        </div>
+
+        <div class="grid grid-cols-4 items-center gap-4">
+          <label hlmLabel class="text-right">Ubicación</label>
+          <div class="col-span-3 flex gap-2">
+            <input hlmInput [(ngModel)]="selectedPath" placeholder="Seleccione la carpeta del proyecto" readonly
+              class="flex-1" />
+            <button hlmBtn variant="outline" size="sm" (click)="selectProjectPath()" type="button">Explorar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Configuración de Modelo -->
+      <div class="space-y-4">
+        <h4 class="text-sm font-medium text-gray-900">Configuración del Modelo</h4>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+        <label hlmLabel class="block text-sm">Modelo YOLO</label>
+        <brn-select class="inline-block w-full mt-1" placeholder="Seleccione un modelo"
+          [(ngModel)]="projectForm.yoloModel">
+          <hlm-select-trigger class="w-full">
+            <hlm-select-value />
+          </hlm-select-trigger>
+          <hlm-select-content>
+            <hlm-option value="yolo11n">yolo11n</hlm-option>
+            <hlm-option value="yolo11s">yolo11s</hlm-option>
+            <hlm-option value="yolo11m">yolo11m</hlm-option>
+            <hlm-option value="yolo11l">yolo11l</hlm-option>
+            <hlm-option value="yolo11x">yolo11x</hlm-option>
+          </hlm-select-content>
+        </brn-select>
+          </div>
+          <div>
+        <label hlmLabel class="block text-sm">Tarea</label>
+        <brn-select class="inline-block w-full mt-1" placeholder="Seleccione una tarea"
+          [(ngModel)]="projectForm.task">
+          <hlm-select-trigger class="w-full">
+            <hlm-select-value />
+          </hlm-select-trigger>
+          <hlm-select-content>
+            <hlm-option value="detect">Detección de objetos</hlm-option>
+            <hlm-option value="segment">Segmentación de instancias</hlm-option>
+          </hlm-select-content>
+        </brn-select>
+          </div>
+        </div>
+
+        @if (projectForm.task === 'segment') {
+          <div class="grid grid-cols-4 items-center gap-4">
+            <label hlmLabel class="">Tipo Segmentación</label>
+            <div class="col-span-3">
+          <brn-select class="inline-block w-full" placeholder="Seleccione tipo de segmentación"
+            [(ngModel)]="projectForm.segmentationType">
+            <hlm-select-trigger class="w-full">
+              <hlm-select-value />
+            </hlm-select-trigger>
+            <hlm-select-content>
+              <hlm-option value="instance">Segmentación de instancias (polígonos)</hlm-option>
+              <hlm-option value="semantic">Segmentación semántica</hlm-option>
+            </hlm-select-content>
+          </brn-select>
+            </div>
+          </div>
+        }
+
+        <div class="grid grid-cols-4 items-center gap-4">
+          <label hlmLabel for="image-size" class="text-right">Tamaño Imagen</label>
+          <div class="col-span-3">
+        <brn-select class="inline-block w-full" placeholder="Seleccione tamaño de imagen"
+          [(ngModel)]="projectForm.imageSize">
+          <hlm-select-trigger class="w-full">
+            <hlm-select-value />
+          </hlm-select-trigger>
+          <hlm-select-content>
+            <hlm-option value="416">416x416 (Rápido)</hlm-option>
+            <hlm-option value="640">640x640 (Balanceado)</hlm-option>
+            <hlm-option value="832">832x832 (Preciso)</hlm-option>
+            <hlm-option value="1024">1024x1024 (Máxima calidad)</hlm-option>
+          </hlm-select-content>
+        </brn-select>
+          </div>
+        </div>
+      </div>
+
+      <!-- División del Dataset -->
+      <div class="space-y-4">
+        <h4 class="text-sm font-medium text-gray-900">División del Dataset</h4>
+
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label hlmLabel class="block text-sm">Entrenamiento (%)</label>
+            <input hlmInput type="number" [(ngModel)]="projectForm.trainSplit" min="50" max="90" class="w-full mt-1"
+              (input)="updateSplits()" />
+          </div>
+          <div>
+            <label hlmLabel class="block text-sm">Validación (%)</label>
+            <input hlmInput type="number" [(ngModel)]="projectForm.validSplit" min="5" max="40" class="w-full mt-1"
+              (input)="updateSplits()" />
+          </div>
+          <div>
+            <label hlmLabel class="block text-sm">Prueba (%)</label>
+            <input hlmInput type="number" [(ngModel)]="projectForm.testSplit" readonly class="w-full mt-1 bg-gray-50" />
+          </div>
+        </div>
+        <p class="text-xs text-gray-500">
+          La suma debe ser 100%. El porcentaje de prueba se calcula automáticamente.
+        </p>
+      </div>
+
+      <!-- Clases Iniciales -->
+      <div class="space-y-4">
+        <h4 class="text-sm font-medium text-gray-900">Clases del Proyecto</h4>
+
+        <div class="space-y-2">
+          @for (className of projectForm.classNames; track $index; let i = $index) {
+        <div class="flex gap-2">
+          <input hlmInput [(ngModel)]="projectForm.classNames[i]" placeholder="Nombre de la clase" class="flex-1" />
+          <button hlmBtn variant="outline" size="sm" (click)="removeClass(i)" type="button"
+            class="text-red-600 hover:text-red-700">✕</button>
+        </div>
+          }
+
+          <button hlmBtn variant="outline" size="sm" (click)="addClass()" type="button" class="w-full">+ Agregar
+        Clase</button>
+        </div>
+      </div>
+
+      <!-- Opciones Avanzadas -->
+      <div class="space-y-4">
+        <h4 class="text-sm font-medium text-gray-900">Opciones Avanzadas</h4>
+        <div class="flex items-center gap-3">
+          <input type="checkbox" id="data-augmentation" [(ngModel)]="projectForm.dataAugmentation" class="rounded" />
+          <label hlmLabel for="data-augmentation">Activar aumentado de datos</label>
+        </div>
+      </div>
+    </div>
+
+    <hlm-dialog-footer class="flex gap-2">
+      <button hlmBtn variant="outline" (click)="ctx.close()" type="button" [disabled]="isCreating()">Cancelar</button>
+      <button hlmBtn variant="default" (click)="emitAndCreate(ctx)" [disabled]="!canCreateProject()" type="submit">{{
+        isCreating() ? 'Creando...' : 'Crear Proyecto' }}</button>
+    </hlm-dialog-footer>
+  </hlm-dialog-content>
+</hlm-dialog>

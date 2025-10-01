@@ -1,0 +1,616 @@
+<div class="h-full flex bg-slate-50">
+  <!-- Left Panel -->
+  <div class="w-80 bg-white border-r p-4 overflow-y-auto">
+    <div class="space-y-4">
+      <!-- Training Configuration -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Configuración de Entrenamiento</h3>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="space-y-2">
+            <label class="text-sm font-medium mb-2 block">Modelo:</label>
+
+            <!-- Combobox para selección de modelo -->
+            <brn-popover [state]="modelComboboxState()" (stateChanged)="modelComboboxStateChanged($event)"
+              sideOffset="5">
+              <button class="w-full justify-between" variant="outline" brnPopoverTrigger
+                (click)="modelComboboxState.set('open')" hlmBtn>
+                {{ currentModelData() ? currentModelData()?.label : 'Seleccionar modelo...' }}
+                <ng-icon hlm size="sm" name="lucideChevronsUpDown" class="opacity-50" />
+              </button>
+              <hlm-command *brnPopoverContent="let ctx" hlmPopoverContent class="w-full p-0">
+                <hlm-command-search>
+                  <ng-icon hlm name="lucideSearch" />
+                  <input placeholder="Buscar modelo..." hlm-command-search-input />
+                </hlm-command-search>
+                <div *brnCommandEmpty hlmCommandEmpty>No se encontraron resultados.</div>
+                <hlm-command-list>
+                  <hlm-command-group>
+                    @for (model of filteredModels; track model) {
+                    <button hlm-command-item [value]="model.value" (selected)="modelCommandSelected(model)">
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="font-medium">{{ model.label }}</span>
+                        <span class="text-xs text-gray-500">{{ model.size }} • {{ model.description }}</span>
+                      </div>
+                      <ng-icon hlm class="ml-auto" [class.opacity-0]="currentModelData()?.value !== model.value"
+                        name="lucideCheck" hlmCommandIcon />
+                    </button>
+                    }
+                  </hlm-command-group>
+                </hlm-command-list>
+              </hlm-command>
+            </brn-popover>
+          </div>
+
+          <div class="flex gap-2 mb-2">
+            <label class="text-sm">Tarea:</label>
+            <select [(ngModel)]="selectedTask" (ngModelChange)="onTaskChange($event)" class="border rounded px-2 py-1 text-sm">
+              <option value="detect">Detección (BBox)</option>
+              <option value="segment">Segmentación de instancias</option>
+            </select>
+          </div>
+
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Épocas:</label>
+            <input type="number" [(ngModel)]="totalEpochs"
+              class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Tamaño de lote:</label>
+            <input type="number" [(ngModel)]="batchSize"
+              class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Tasa de aprendizaje:</label>
+            <input type="number" [(ngModel)]="learningRate" step="0.001"
+              class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium mb-2 block">Tamaño de imagen:</label>
+            <brn-popover [state]="imageSizeComboboxState()" (stateChanged)="imageSizeComboboxStateChanged($event)"
+              sideOffset="5">
+              <button class="w-full justify-between" variant="outline" brnPopoverTrigger
+                (click)="imageSizeComboboxState.set('open')" hlmBtn>
+                {{ currentImageSize() ? currentImageSize()?.label : 'Seleccionar tamaño...' }}
+                <ng-icon hlm size="sm" name="lucideChevronsUpDown" class="opacity-50" />
+              </button>
+              <hlm-command *brnPopoverContent="let ctx" hlmPopoverContent class="w-full p-0">
+                <hlm-command-search>
+                  <ng-icon hlm name="lucideSearch" />
+                  <input placeholder="Buscar tamaño..." hlm-command-search-input />
+                </hlm-command-search>
+                <div *brnCommandEmpty hlmCommandEmpty>No se encontraron resultados.</div>
+                <hlm-command-list>
+                  <hlm-command-group>
+                    @for (size of imageSizes; track size) {
+                    <button hlm-command-item [value]="size.value" (selected)="imageSizeCommandSelected(size)">
+                      <span>{{ size.label }}</span>
+                      <ng-icon hlm class="ml-auto" [class.opacity-0]="currentImageSize()?.value !== size.value"
+                        name="lucideCheck" hlmCommandIcon />
+                    </button>
+                    }
+                  </hlm-command-group>
+                </hlm-command-list>
+              </hlm-command>
+            </brn-popover>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dataset Verification -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Verificación del Dataset</h3>
+          <div *ngIf="datasetInfo.loading" class="flex items-center gap-1 mt-1">
+            <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+            <span class="text-xs text-gray-500">Verificando...</span>
+          </div>
+        </div>
+        <div class="p-4 space-y-3">
+          <!-- Estado sin dataset -->
+          <div *ngIf="!datasetInfo.is_loaded && !datasetInfo.loading && !datasetInfo.error" class="text-center py-4">
+            <svg class="w-8 h-8 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            <p class="text-sm text-gray-500">Selecciona un dataset para ver la información</p>
+          </div>
+
+          <!-- Loading -->
+          <div *ngIf="datasetInfo.loading" class="text-center py-4">
+            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-2"></div>
+            <p class="text-sm text-gray-500">Verificando dataset...</p>
+          </div>
+
+          <!-- Error -->
+          <div *ngIf="datasetInfo.error" class="p-3 bg-red-50 border border-red-200 rounded-md">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <p class="text-sm text-red-800">{{ datasetInfo.error }}</p>
+            </div>
+          </div>
+
+          <!-- Información del dataset -->
+          <div *ngIf="datasetInfo.is_loaded && !datasetInfo.loading">
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Imágenes de entrenamiento:</span>
+              <div class="flex items-center gap-2">
+                <span class="font-medium">{{ datasetInfo.train_images.toLocaleString() }}</span>
+                <svg [class]="getDatasetStatusIcon(datasetInfo.train_images, 'train')" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Imágenes de validación:</span>
+              <div class="flex items-center gap-2">
+                <span class="font-medium">{{ datasetInfo.val_images.toLocaleString() }}</span>
+                <svg [class]="getDatasetStatusIcon(datasetInfo.val_images, 'val')" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="flex justify-between items-center" *ngIf="datasetInfo.test_images > 0">
+              <span class="text-sm">Imágenes de prueba:</span>
+              <div class="flex items-center gap-2">
+                <span class="font-medium">{{ datasetInfo.test_images.toLocaleString() }}</span>
+                <svg [class]="getDatasetStatusIcon(datasetInfo.test_images, 'test')" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="flex justify-between items-center border-t pt-2 mt-2">
+              <span class="text-sm">Total de clases:</span>
+              <div class="flex items-center gap-2">
+                <span class="font-medium">{{ datasetInfo.total_classes }}</span>
+                <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+                </svg>
+              </div>
+            </div>
+
+            <div *ngIf="datasetInfo.class_names.length > 0 && datasetInfo.class_names.length <= 10" class="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+              <p class="font-medium text-blue-800 mb-1">Clases:</p>
+              <div class="flex flex-wrap gap-1">
+                <span *ngFor="let className of datasetInfo.class_names"
+                      class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                  {{ className }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Recomendaciones -->
+            <div class="mt-3 p-2 rounded text-xs" [class]="getDatasetRecommendationClass()">
+              <svg class="w-4 h-4 inline mr-1" [class]="getDatasetRecommendationIconClass()" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      [attr.d]="getDatasetRecommendationIcon()" />
+              </svg>
+              {{ getDatasetRecommendationMessage() }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System Resources -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Recursos del Sistema</h3>
+          <div *ngIf="systemResources.loading" class="flex items-center gap-1 mt-1">
+            <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+            <span class="text-xs text-gray-500">Obteniendo datos...</span>
+          </div>
+        </div>
+        <div class="p-4 space-y-3">
+          <!-- Error -->
+          <div *ngIf="systemResources.error" class="p-3 bg-red-50 border border-red-200 rounded-md">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <p class="text-sm text-red-800">{{ systemResources.error }}</p>
+            </div>
+          </div>
+
+          <!-- GPU Info -->
+          <div *ngIf="!systemResources.loading && !systemResources.error" class="space-y-3">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+              </svg>
+              <span class="text-sm">
+                GPU: {{ systemResources.gpu.gpu_available ? systemResources.gpu.gpu_name : 'No detectada' }}
+              </span>
+              <span class="px-2 py-1 rounded text-xs"
+                    [class]="systemResources.gpu.gpu_available ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-700'">
+                {{ systemResources.gpu.gpu_available ? 'Disponible' : 'No disponible' }}
+              </span>
+            </div>
+
+            <!-- GPU Usage (only if available) -->
+            <div *ngIf="systemResources.gpu.gpu_available" class="space-y-3">
+              <div class="space-y-1">
+                <div class="flex justify-between items-center text-sm">
+                  <span>Uso de GPU:</span>
+                  <div class="flex items-center gap-1">
+                    <span>{{ systemResources.gpu.gpu_utilization }}%</span>
+                    <svg [class]="getResourceStatusIcon(systemResources.gpu.gpu_utilization)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                  </div>
+                </div>
+                <div class="bg-gray-200 rounded-full h-2">
+                  <div class="h-2 rounded-full transition-all duration-300"
+                       [class]="getResourceStatusColor(systemResources.gpu.gpu_utilization, 'gpu')"
+                       [style.width.%]="systemResources.gpu.gpu_utilization"></div>
+                </div>
+              </div>
+
+              <div class="space-y-1">
+                <div class="flex justify-between items-center text-sm">
+                  <span>Memoria GPU:</span>
+                  <div class="flex items-center gap-1">
+                    <span>{{ systemResources.gpu.gpu_memory_used_gb.toFixed(1) }} / {{ systemResources.gpu.gpu_memory_total_gb.toFixed(1) }} GB</span>
+                    <svg [class]="getResourceStatusIcon(systemResources.gpu.gpu_memory_percent)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                  </div>
+                </div>
+                <div class="bg-gray-200 rounded-full h-2">
+                  <div class="h-2 rounded-full transition-all duration-300"
+                       [class]="getResourceStatusColor(systemResources.gpu.gpu_memory_percent, 'memory')"
+                       [style.width.%]="systemResources.gpu.gpu_memory_percent"></div>
+                </div>
+              </div>
+
+              <div *ngIf="systemResources.gpu.gpu_temperature > 0" class="flex justify-between items-center text-sm">
+                <span>Temperatura GPU:</span>
+                <span class="font-medium">{{ systemResources.gpu.gpu_temperature }}°C</span>
+              </div>
+            </div>
+
+            <!-- CPU Usage -->
+            <div class="space-y-1 border-t pt-2">
+              <div class="flex justify-between items-center text-sm">
+                <span>Uso de CPU ({{ systemResources.cpu.count }} núcleos):</span>
+                <div class="flex items-center gap-1">
+                  <span>{{ systemResources.cpu.percent }}%</span>
+                  <svg [class]="getResourceStatusIcon(systemResources.cpu.percent)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="bg-gray-200 rounded-full h-2">
+                <div class="h-2 rounded-full transition-all duration-300"
+                     [class]="getResourceStatusColor(systemResources.cpu.percent, 'cpu')"
+                     [style.width.%]="systemResources.cpu.percent"></div>
+              </div>
+            </div>
+
+            <!-- RAM Usage -->
+            <div class="space-y-1">
+              <div class="flex justify-between items-center text-sm">
+                <span>Memoria RAM:</span>
+                <div class="flex items-center gap-1">
+                  <span>{{ systemResources.memory.used_gb.toFixed(1) }} / {{ systemResources.memory.total_gb.toFixed(1) }} GB</span>
+                  <svg [class]="getResourceStatusIcon(systemResources.memory.percent)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="bg-gray-200 rounded-full h-2">
+                <div class="h-2 rounded-full transition-all duration-300"
+                     [class]="getResourceStatusColor(systemResources.memory.percent, 'memory')"
+                     [style.width.%]="systemResources.memory.percent"></div>
+              </div>
+            </div>
+
+            <!-- Process Usage (durante entrenamiento) -->
+            <div *ngIf="isTraining" class="border-t pt-2 space-y-1">
+              <div class="text-xs font-medium text-gray-600 mb-2">Proceso de Entrenamiento:</div>
+              <div class="flex justify-between text-sm">
+                <span>CPU del proceso:</span>
+                <span class="font-medium">{{ systemResources.process.cpu_percent }}%</span>
+              </div>
+              <div class="flex justify-between text-sm">
+                <span>RAM del proceso:</span>
+                <span class="font-medium">{{ systemResources.process.memory_mb.toFixed(0) }} MB</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Loading state -->
+          <div *ngIf="systemResources.loading" class="text-center py-4">
+            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto mb-2"></div>
+            <p class="text-sm text-gray-500">Obteniendo datos del sistema...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center Panel -->
+  <div class="flex-1 flex flex-col p-4">
+    <div class="flex-1 bg-white rounded-lg border p-6">
+      <!-- Training Control -->
+
+      <!-- Dataset Selection -->
+      <div class="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+        <h4 class="font-medium mb-3 text-gray-700">Selección de Dataset</h4>
+        <button
+          class="w-full mb-3 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 flex items-center justify-center gap-2 transition-colors"
+          (click)="seleccionarYaml()">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          Seleccionar dataset.yaml
+        </button>
+
+        <div *ngIf="datasetYamlPath" class="p-3 bg-green-50 border border-green-200 rounded-md">
+          <div class="flex items-start gap-2">
+            <svg class="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-green-800">Dataset seleccionado:</p>
+              <p class="text-xs text-green-600 break-all">{{ datasetYamlPath }}</p>
+            </div>
+            <button
+              class="flex-shrink-0 p-1 text-green-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+              (click)="limpiarDataset()"
+              title="Limpiar selección">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div *ngIf="!datasetYamlPath" class="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+            <p class="text-sm text-yellow-800">Selecciona un archivo dataset.yaml para continuar</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Training Status and Progress -->
+      <div *ngIf="isTraining || trainingStatus !== 'idle'" class="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50">
+        <div class="mb-3">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-medium text-blue-800">{{ getTrainingStatusMessage() }}</span>
+            <span class="text-sm text-blue-600">
+              <span *ngIf="trainingStatus === 'downloading'">{{ downloadProgress }}%</span>
+              <span *ngIf="trainingStatus === 'training'">Época {{ currentEpoch }}/{{ totalEpochs }}</span>
+            </span>
+          </div>
+
+          <!-- Download Progress -->
+          <div *ngIf="trainingStatus === 'downloading'" class="mb-2">
+            <div class="bg-blue-200 rounded-full h-2">
+              <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" [style.width.%]="downloadProgress"></div>
+            </div>
+          </div>
+
+          <!-- Training Progress -->
+          <div *ngIf="trainingStatus === 'training' || trainingStatus === 'validating'" class="mb-2">
+            <div class="bg-blue-200 rounded-full h-2">
+              <div class="bg-green-600 h-2 rounded-full transition-all duration-300" [style.width.%]="trainingProgress"></div>
+            </div>
+          </div>
+
+          <!-- Current Metrics -->
+          <div *ngIf="trainingStatus === 'training' && currentMetrics.box_loss > 0" class="grid grid-cols-2 gap-2 mt-3 text-xs">
+            <div class="flex justify-between">
+              <span>Pérdida Box:</span>
+              <span class="font-mono">{{ currentMetrics.box_loss.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between" *ngIf="selectedTask === 'segment'">
+              <span>Pérdida Seg:</span>
+              <span class="font-mono">{{ currentMetrics.seg_loss.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Pérdida Cls:</span>
+              <span class="font-mono">{{ currentMetrics.cls_loss.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Instancias:</span>
+              <span class="font-mono">{{ currentMetrics.instances }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <button *ngIf="!isTraining"
+          class="w-full h-12 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium flex items-center justify-center gap-2 transition-colors"
+          (click)="iniciarEntrenamiento()">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m-4 4v-4" />
+          </svg>
+          Iniciar Entrenamiento
+        </button>
+
+        <button *ngIf="isTraining"
+          class="w-full h-12 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium flex items-center justify-center gap-2 transition-colors"
+          (click)="detenerEntrenamiento()">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
+          </svg>
+          Detener Entrenamiento
+        </button>
+      </div>
+
+      <!-- Training Logs -->
+      <div class="flex-1">
+        <h4 class="font-medium mb-3">Registro de Entrenamiento</h4>
+        <div class="bg-gray-900 text-green-400 p-4 rounded-lg h-80 overflow-y-auto">
+          <div class="space-y-1 font-mono text-sm select-text">
+            <div *ngFor="let log of trainingLogs; let i = index" class="flex">
+              <span class="select-text">{{log}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="w-80 bg-white border-l p-4 overflow-y-auto">
+    <div class="space-y-4">
+      <!-- Quick Metrics -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Métricas Actuales</h3>
+          <span *ngIf="trainingStatus !== 'idle'" class="text-xs text-gray-500">Época {{ currentEpoch }}/{{ totalEpochs }}</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div *ngIf="currentMetrics.box_loss > 0; else noMetrics" class="space-y-2">
+            <div class="flex justify-between text-sm">
+              <span>{{ getMetricDisplayName('box_loss') }}:</span>
+              <span class="font-medium font-mono">{{ currentMetrics.box_loss.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span>{{ getMetricDisplayName('cls_loss') }}:</span>
+              <span class="font-medium font-mono">{{ currentMetrics.cls_loss.toFixed(4) }}</span>
+            </div>
+            <div *ngIf="selectedTask === 'segment'" class="flex justify-between text-sm">
+              <span>{{ getMetricDisplayName('seg_loss') }}:</span>
+              <span class="font-medium font-mono">{{ currentMetrics.seg_loss.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span>{{ getMetricDisplayName('dfl_loss') }}:</span>
+              <span class="font-medium font-mono">{{ currentMetrics.dfl_loss.toFixed(4) }}</span>
+            </div>
+            <div class="flex justify-between text-sm border-t pt-2">
+              <span>{{ getMetricDisplayName('instances') }}:</span>
+              <span class="font-medium text-blue-600">{{ currentMetrics.instances }}</span>
+            </div>
+          </div>
+          <ng-template #noMetrics>
+            <div class="text-sm text-gray-500 text-center py-4">
+              <svg class="w-8 h-8 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+              Sin datos de entrenamiento
+            </div>
+          </ng-template>
+        </div>
+      </div>
+
+      <!-- Model Summary -->
+      <div *ngIf="modelSummary.name" class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Resumen del Modelo</h3>
+        </div>
+        <div class="p-4 space-y-2">
+          <div class="flex justify-between text-sm">
+            <span>Modelo:</span>
+            <span class="font-medium">{{ modelSummary.name }}</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span>Capas:</span>
+            <span class="font-medium">{{ modelSummary.layers }}</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span>Parámetros:</span>
+            <span class="font-medium">{{ modelSummary.parameters }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Training Metrics Chart -->
+      <div *ngIf="metricsHistory.length > 1" class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Evolución de Métricas</h3>
+        </div>
+        <div class="p-4">
+          <div class="space-y-4">
+            <!-- Box Loss Chart -->
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-medium text-gray-600">{{ getMetricDisplayName('box_loss') }}</span>
+                <span class="text-xs text-gray-500">{{ getLatestMetric('box_loss') }}</span>
+              </div>
+              <div class="h-8 bg-gray-100 rounded overflow-hidden">
+                <div class="h-full flex items-end gap-px">
+                  <div *ngFor="let metric of metricsHistory; let i = index"
+                       class="flex-1 bg-red-400 transition-all duration-300"
+                       [style.height.%]="getMetricBarHeight('box_loss', metric.box_loss)"
+                       [title]="'Época ' + metric.epoch + ': ' + metric.box_loss.toFixed(4)">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Seg Loss Chart (only for segmentation) -->
+            <div *ngIf="selectedTask === 'segment'">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-medium text-gray-600">{{ getMetricDisplayName('seg_loss') }}</span>
+                <span class="text-xs text-gray-500">{{ getLatestMetric('seg_loss') }}</span>
+              </div>
+              <div class="h-8 bg-gray-100 rounded overflow-hidden">
+                <div class="h-full flex items-end gap-px">
+                  <div *ngFor="let metric of metricsHistory; let i = index"
+                       class="flex-1 bg-blue-400 transition-all duration-300"
+                       [style.height.%]="getMetricBarHeight('seg_loss', metric.seg_loss)"
+                       [title]="'Época ' + metric.epoch + ': ' + metric.seg_loss.toFixed(4)">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Class Loss Chart -->
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-medium text-gray-600">{{ getMetricDisplayName('cls_loss') }}</span>
+                <span class="text-xs text-gray-500">{{ getLatestMetric('cls_loss') }}</span>
+              </div>
+              <div class="h-8 bg-gray-100 rounded overflow-hidden">
+                <div class="h-full flex items-end gap-px">
+                  <div *ngFor="let metric of metricsHistory; let i = index"
+                       class="flex-1 bg-green-400 transition-all duration-300"
+                       [style.height.%]="getMetricBarHeight('cls_loss', metric.cls_loss)"
+                       [title]="'Época ' + metric.epoch + ': ' + metric.cls_loss.toFixed(4)">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- DFL Loss Chart -->
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-medium text-gray-600">{{ getMetricDisplayName('dfl_loss') }}</span>
+                <span class="text-xs text-gray-500">{{ getLatestMetric('dfl_loss') }}</span>
+              </div>
+              <div class="h-8 bg-gray-100 rounded overflow-hidden">
+                <div class="h-full flex items-end gap-px">
+                  <div *ngFor="let metric of metricsHistory; let i = index"
+                       class="flex-1 bg-yellow-400 transition-all duration-300"
+                       [style.height.%]="getMetricBarHeight('dfl_loss', metric.dfl_loss)"
+                       [title]="'Época ' + metric.epoch + ': ' + metric.dfl_loss.toFixed(4)">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

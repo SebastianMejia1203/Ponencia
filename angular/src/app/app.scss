@@ -1,0 +1,69 @@
+/* Overlay de carga para copiar imágenes */
+.images-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  font-family: system-ui, sans-serif;
+}
+ .images-loading-box {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  width: 320px;
+  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.05);
+ }
+ .progress-bar-track { height: 6px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
+ .progress-bar-fill { height:100%; background:linear-gradient(90deg,#6366f1,#3b82f6); width:0%; transition: width .25s ease; }
+// Contenedor principal fijo al tamaño completo de la pantalla
+.content-main{
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow: hidden; // Prevenir scroll en el contenedor principal
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+}
+
+// Asegurar que las tabs ocupen todo el espacio disponible
+.tabs {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+// Asegurar que los componentes de las tabs ocupen todo el espacio
+hlm-tabs {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+hlm-tabs > div[hlmTabsContent] {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.title-bar {
+  min-height: 2.75rem;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+hlm-tabs-list {
+  background-color: var(--card);
+}
+
+// hlm-tabs-list button{
+//   border-radius: 0%;
+// }
+
+hlm-tabs div{
+  background-color: var(--secondary);
+  margin-top: 0px;
+}

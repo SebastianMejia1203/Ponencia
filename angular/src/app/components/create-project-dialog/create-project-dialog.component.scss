@@ -1,0 +1,31 @@
+/* Estilos específicos del diálogo de creación de proyecto.
+   Mantener mínimo para respetar estilos utilitarios ya presentes. */
+
+:host {
+  display: block;
+}
+
+/* Para navegadores basados en Webkit (Chrome, Safari, Opera) */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+/* Para Firefox */
+.panel {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  overflow-y: scroll;
+}

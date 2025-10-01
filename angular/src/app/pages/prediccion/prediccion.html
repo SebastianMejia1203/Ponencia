@@ -1,0 +1,423 @@
+<div class="h-full flex bg-slate-50">
+  <!-- Left Panel -->
+  <div class="w-80 bg-white border-r p-4 overflow-y-auto">
+    <div class="space-y-4">
+      <!-- Model Selection -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Selección de Modelo</h3>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="space-y-2">
+            <label class="text-sm font-medium mb-2 block">Modelo entrenado:</label>
+            
+            <!-- Estado de carga -->
+            <div *ngIf="modelsLoading" class="flex items-center gap-2 p-2 text-sm text-gray-600">
+              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+              <span>Cargando modelos...</span>
+            </div>
+            
+            <!-- Error al cargar -->
+            <div *ngIf="modelsError && !modelsLoading" class="p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              {{ modelsError }}
+              <button (click)="loadTrainedModels()" class="ml-2 text-blue-600 hover:text-blue-800 underline">Reintentar</button>
+            </div>
+            
+            <!-- Combobox de modelos -->
+            <brn-popover *ngIf="!modelsLoading && !modelsError" [state]="modelComboboxState()" (stateChanged)="modelComboboxStateChanged($event)" sideOffset="5">
+              <button
+                class="w-full justify-between"
+                variant="outline"
+                brnPopoverTrigger
+                (click)="modelComboboxState.set('open')"
+                hlmBtn
+                [disabled]="availableModels.length === 0"
+              >
+                {{ currentModelData() ? currentModelData()?.label : (availableModels.length === 0 ? 'No hay modelos disponibles' : 'Seleccionar modelo...') }}
+                <ng-icon hlm size="sm" name="lucideChevronsUpDown" class="opacity-50" />
+              </button>
+              <hlm-command *brnPopoverContent="let ctx" hlmPopoverContent class="w-full p-0">
+                <hlm-command-search>
+                  <ng-icon hlm name="lucideSearch" />
+                  <input placeholder="Buscar modelo..." hlm-command-search-input />
+                </hlm-command-search>
+                <div *brnCommandEmpty hlmCommandEmpty>No se encontraron resultados.</div>
+                <hlm-command-list>
+                  <hlm-command-group>
+                    @for (model of availableModels; track model) {
+                      <button hlm-command-item [value]="model.value" (selected)="modelCommandSelected(model)">
+                        <div class="flex flex-col items-start gap-1">
+                          <span class="font-medium">{{ model.label }}</span>
+                          <div class="flex items-center gap-2 text-xs text-gray-500">
+                            <span>{{ model.date }}</span>
+                            <span>•</span>
+                            <span>{{ model.size }}</span>
+                            <span *ngIf="model.task" class="px-1 bg-gray-100 rounded">{{ model.task }}</span>
+                          </div>
+                        </div>
+                        <ng-icon
+                          hlm
+                          class="ml-auto"
+                          [class.opacity-0]="currentModelData()?.value !== model.value"
+                          name="lucideCheck"
+                          hlmCommandIcon
+                        />
+                      </button>
+                    }
+                  </hlm-command-group>
+                </hlm-command-list>
+              </hlm-command>
+            </brn-popover>
+          </div>
+
+          <div *ngIf="hasModelSelected" class="p-3 bg-green-50 border border-green-200 rounded text-sm">
+            <div class="flex items-center gap-2 mb-2">
+              <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <span class="font-medium">Modelo cargado</span>
+            </div>
+            <div class="space-y-1 text-xs text-gray-600">
+              <div>Fecha: {{selectedModelData?.date}}</div>
+              <div>Precisión: {{selectedModelData?.accuracy?.toFixed(3)}}</div>
+              <div>Tamaño: {{selectedModelData?.size}}</div>
+            </div>
+          </div>
+
+          <button
+            class="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+            (click)="loadExternalModel()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-5l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+            Cargar Modelo Externo
+          </button>
+        </div>
+      </div>
+
+      <!-- Prediction Settings -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Configuración de Predicción</h3>
+        </div>
+        <div class="p-4 space-y-4">
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Umbral de confianza: {{confidenceThreshold.toFixed(2)}}</label>
+            <input
+              type="range"
+              [value]="confidenceThreshold"
+              (input)="onConfidenceChange($event)"
+              min="0"
+              max="1"
+              step="0.01"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Umbral IoU: {{iouThreshold.toFixed(2)}}</label>
+            <input
+              type="range"
+              [value]="iouThreshold"
+              (input)="onIouChange($event)"
+              min="0"
+              max="1"
+              step="0.01"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium">Máximo de detecciones:</label>
+            <input
+              type="number"
+              [(ngModel)]="maxDetections"
+              class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- Batch Prediction -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Predicción por Lotes</h3>
+        </div>
+        <div class="p-4 space-y-3">
+          <button
+            class="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            [disabled]="!hasModelSelected"
+            (click)="predictFolder()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-5l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+            Predecir Carpeta
+          </button>
+
+          <div *ngIf="isPredicting" class="space-y-2">
+            <div class="bg-gray-200 rounded-full h-2">
+              <div
+                class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                [style.width.%]="predictionProgress">
+              </div>
+            </div>
+            <div class="text-xs text-gray-600 text-center">
+              Procesando: {{predictionProgress}}/100 imágenes
+            </div>
+          </div>
+
+          <div class="text-xs text-gray-600 space-y-1">
+            <div>Formatos soportados:</div>
+            <div>JPG, PNG, BMP, TIFF</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center Panel -->
+  <div class="flex-1 flex flex-col p-4">
+    <div class="flex-1 bg-white rounded-lg border flex flex-col">
+      <!-- Compact Upload Section -->
+      <div class="border-b">
+        <div class="p-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900">Predicción de Imagen</h3>
+            <button
+              class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              [disabled]="!hasModelSelected || !selectedImage || isPredicting"
+              (click)="startPrediction()">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m-4 4v-4"/>
+              </svg>
+              {{ isPredicting ? 'Procesando...' : 'Predecir' }}
+            </button>
+          </div>
+
+          <!-- Image Selection Area -->
+          <div class="mt-4">
+            <!-- Sin imagen seleccionada -->
+            <div *ngIf="!selectedImage && !isPredicting" 
+                 class="border-2 border-gray-300 border-dashed rounded-lg p-6 text-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+                 (click)="selectImage()">
+              <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+              <p class="text-gray-600">Cargar imagen para predicción</p>
+              <p class="text-sm text-gray-500 mt-1">Arrastra y suelta o haz clic para seleccionar</p>
+              <button
+                class="mt-3 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 mx-auto transition-colors"
+                (click)="selectImage()">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                Seleccionar Imagen
+              </button>
+            </div>
+
+            <!-- Imagen seleccionada -->
+            <div *ngIf="selectedImage && !isPredicting" class="text-center">
+              <svg class="w-12 h-12 mx-auto mb-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <p class="text-gray-600 font-medium">Imagen seleccionada</p>
+              <p class="text-sm text-gray-500 mt-1 px-4 break-all">{{ selectedImage }}</p>
+              <div class="mt-3 flex gap-2 justify-center">
+                <button
+                  class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors"
+                  (click)="selectImage()">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                  </svg>
+                  Cambiar Imagen
+                </button>
+              </div>
+            </div>
+
+            <!-- Predicción en progreso -->
+            <div *ngIf="isPredicting" class="text-center">
+              <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <p class="text-gray-600 font-medium">Realizando predicción...</p>
+              <div class="mt-3 w-64 bg-gray-200 rounded-full h-2 mx-auto">
+                <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" [style.width.%]="predictionProgress"></div>
+              </div>
+              <p class="text-sm text-gray-500 mt-2">{{ predictionProgress }}%</p>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="absolute top-4 right-4 flex gap-2">
+            <button
+              class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              [disabled]="!hasModelSelected || !selectedImage || isPredicting"
+              (click)="startPrediction()">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m-4 4v-4"/>
+              </svg>
+              Predecir
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results Area -->
+      <div class="h-1/2">
+        <div class="h-full m-4 rounded-lg bg-gray-50 border-2 border-gray-200 relative">
+          <div class="absolute inset-0 flex items-center justify-center">
+            <div class="text-center text-gray-500">
+              <svg class="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+              </svg>
+              <p>Los resultados de predicción aparecerán aquí</p>
+            </div>
+          </div>
+
+          <!-- Comparison View Toggle -->
+          <div class="absolute top-4 left-4">
+            <div class="bg-white border rounded-lg p-1 flex">
+              <button
+                class="px-3 py-1 text-xs rounded transition-colors"
+                [ngClass]="isViewActive('original') ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+                (click)="setView('original')">
+                Original
+              </button>
+              <button
+                class="px-3 py-1 text-xs rounded transition-colors"
+                [ngClass]="isViewActive('prediction') ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+                (click)="setView('prediction')">
+                Predicción
+              </button>
+              <button
+                class="px-3 py-1 text-xs rounded transition-colors"
+                [ngClass]="isViewActive('compare') ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+                (click)="setView('compare')">
+                Comparar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="w-80 bg-white border-l p-4 overflow-y-auto">
+    <div class="space-y-4">
+      <!-- Prediction Results -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Resultados de Predicción</h3>
+        </div>
+        <div class="p-4 space-y-3">
+          <ng-container *ngIf="predictions.length === 0; else hasPredictions">
+            <p class="text-sm text-gray-500">No hay predicciones aún</p>
+          </ng-container>
+          <ng-template #hasPredictions>
+            <div class="space-y-2">
+              <div *ngFor="let pred of predictions; let i = index" class="border rounded p-2 space-y-1">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                    <span class="text-sm font-medium">{{pred.class}}</span>
+                  </div>
+                  <span
+                    class="px-2 py-1 rounded text-xs font-medium"
+                    [ngClass]="getConfidenceBadgeClass(pred.confidence)">
+                    {{(pred.confidence * 100).toFixed(1)}}%
+                  </span>
+                </div>
+                <div class="text-xs text-gray-500">
+                  Bbox: {{pred.bbox}}
+                </div>
+              </div>
+            </div>
+          </ng-template>
+        </div>
+      </div>
+
+      <!-- Export Options -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Opciones de Exportación</h3>
+        </div>
+        <div class="p-4 space-y-2">
+          <button
+            class="w-full border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+            (click)="exportResults()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+            </svg>
+            Exportar Resultados
+          </button>
+
+          <div class="space-y-2">
+            <label class="text-sm font-medium mb-2 block">Formato:</label>
+            <brn-popover [state]="exportFormatComboboxState()" (stateChanged)="exportFormatComboboxStateChanged($event)" sideOffset="5">
+              <button
+                class="w-full justify-between"
+                variant="outline"
+                brnPopoverTrigger
+                (click)="exportFormatComboboxState.set('open')"
+                hlmBtn
+              >
+                {{ currentExportFormat() ? currentExportFormat()?.label : 'Seleccionar formato...' }}
+                <ng-icon hlm size="sm" name="lucideChevronsUpDown" class="opacity-50" />
+              </button>
+              <hlm-command *brnPopoverContent="let ctx" hlmPopoverContent class="w-full p-0">
+                <hlm-command-search>
+                  <ng-icon hlm name="lucideSearch" />
+                  <input placeholder="Buscar formato..." hlm-command-search-input />
+                </hlm-command-search>
+                <div *brnCommandEmpty hlmCommandEmpty>No se encontraron resultados.</div>
+                <hlm-command-list>
+                  <hlm-command-group>
+                    @for (format of exportFormats; track format) {
+                      <button hlm-command-item [value]="format.value" (selected)="exportFormatCommandSelected(format)">
+                        <span>{{ format.label }}</span>
+                        <ng-icon
+                          hlm
+                          class="ml-auto"
+                          [class.opacity-0]="currentExportFormat()?.value !== format.value"
+                          name="lucideCheck"
+                          hlmCommandIcon
+                        />
+                      </button>
+                    }
+                  </hlm-command-group>
+                </hlm-command-list>
+              </hlm-command>
+            </brn-popover>
+          </div>
+
+          <div class="text-xs text-gray-600 mt-2">
+            <div>• Incluir coordenadas de bbox</div>
+            <div>• Incluir confianza</div>
+            <div>• Incluir máscaras de segmentación</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Model Performance -->
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div class="p-4 pb-3 border-b">
+          <h3 class="text-sm font-semibold">Rendimiento del Modelo</h3>
+        </div>
+        <div class="p-4 space-y-2">
+          <div class="flex justify-between text-sm">
+            <span>Tiempo de inferencia:</span>
+            <span class="font-medium">45ms</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span>FPS estimado:</span>
+            <span class="font-medium">22.2</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span>Uso de memoria:</span>
+            <span class="font-medium">2.1 GB</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span>Detecciones:</span>
+            <span class="font-medium">{{predictions.length}}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
