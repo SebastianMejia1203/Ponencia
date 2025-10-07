@@ -6,6 +6,8 @@ export interface ProjectInfo {
   root: string;
   createdAt?: string;
   classes?: string[];
+  task?: 'detect' | 'segment';
+  dataYamlPath?: string;
 }
 
 @Injectable({ providedIn: 'root' })

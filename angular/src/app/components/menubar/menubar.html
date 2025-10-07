@@ -6,9 +6,9 @@
 			<button hlmMenuItem (click)="dispatch('nuevo-proyecto')"><span>Nuevo Proyecto</span><hlm-menu-shortcut>Ctrl+N</hlm-menu-shortcut></button>
 			<button hlmMenuItem (click)="dispatch('abrir-proyecto')"><span>Abrir Proyecto</span><hlm-menu-shortcut>Ctrl+O</hlm-menu-shortcut></button>
 			<button hlmMenuItem [brnMenuTriggerFor]="abrirReciente"><span>Abrir Reciente</span><hlm-menu-item-sub-indicator /></button>
-			<hlm-menu-separator />
+			<!-- <hlm-menu-separator />
 			<button hlmMenuItem [brnMenuTriggerFor]="importarSub"><span>Importar</span><hlm-menu-item-sub-indicator /></button>
-			<button hlmMenuItem [brnMenuTriggerFor]="exportarSub"><span>Exportar</span><hlm-menu-item-sub-indicator /></button>
+			<button hlmMenuItem [brnMenuTriggerFor]="exportarSub"><span>Exportar</span><hlm-menu-item-sub-indicator /></button> -->
 			<hlm-menu-separator />
 			<button hlmMenuItem (click)="dispatch('salir')">Salir <hlm-menu-shortcut>Ctrl+Q</hlm-menu-shortcut></button>
 		</hlm-menu>
@@ -56,13 +56,13 @@
 			<button hlmMenuItem (click)="dispatch('cargar-imagenes')">Cargar Imágenes <hlm-menu-shortcut>Ctrl+I</hlm-menu-shortcut></button>
 			<button hlmMenuItem (click)="dispatch('gestionar-imagenes')">Gestionar Imágenes</button>
 			<button hlmMenuItem (click)="dispatch('gestionar-clases')">Gestionar Clases <hlm-menu-shortcut>Ctrl+G</hlm-menu-shortcut></button>
-			<hlm-menu-separator />
-			<button hlmMenuItem (click)="dispatch('exportar-yolo')">Exportar a YOLO <hlm-menu-shortcut>Ctrl+E</hlm-menu-shortcut></button>
+			<!-- <hlm-menu-separator />
+			<button hlmMenuItem (click)="dispatch('exportar-yolo')">Exportar a YOLO <hlm-menu-shortcut>Ctrl+E</hlm-menu-shortcut></button> -->
 		</hlm-menu>
 	</ng-template>
 
 		<!-- Herramientas -->
-		<button brnMenuTrigger hlmBtn variant="ghost" size="sm" [brnMenuTriggerFor]="herramientas" class="px-2 rounded-none">Herramientas</button>
+		<!-- <button brnMenuTrigger hlmBtn variant="ghost" size="sm" [brnMenuTriggerFor]="herramientas" class="px-2 rounded-none">Herramientas</button>
 		<ng-template #herramientas>
 			<hlm-menu class="w-60">
 				<button hlmMenuItem (click)="dispatch('validar-dataset')">Validar Dataset <hlm-menu-shortcut>Ctrl+Shift+V</hlm-menu-shortcut></button>
@@ -85,31 +85,31 @@
 				<button hlmMenuItem (click)="dispatch('convertir-pascal-yolo')">Pascal VOC a YOLO</button>
 				<button hlmMenuItem (click)="dispatch('convertir-yolo-coco')">YOLO a COCO</button>
 			</hlm-sub-menu>
-		</ng-template>
+		</ng-template> -->
 
 
 	<!-- Ventana -->
-	<button brnMenuTrigger hlmBtn variant="ghost" size="sm" [brnMenuTriggerFor]="ventana" class="px-2 rounded-none">Ventana</button>
+	<!-- <button brnMenuTrigger hlmBtn variant="ghost" size="sm" [brnMenuTriggerFor]="ventana" class="px-2 rounded-none">Ventana</button>
 	<ng-template #ventana>
 		<hlm-menu class="w-40">
 			<button hlmMenuItem (click)="dispatch('minimizar')">Minimizar</button>
 			<button hlmMenuItem (click)="dispatch('cerrar-ventana')">Cerrar</button>
 		</hlm-menu>
-	</ng-template>
+	</ng-template> -->
 
 		<!-- Ayuda -->
 		<button brnMenuTrigger hlmBtn variant="ghost" size="sm" [brnMenuTriggerFor]="ayuda" class="px-2 rounded-none">Ayuda</button>
 		<ng-template #ayuda>
 			<hlm-menu class="w-56">
-				<button hlmMenuItem (click)="dispatch('documentacion')">Documentación <hlm-menu-shortcut>F1</hlm-menu-shortcut></button>
-				<button hlmMenuItem [brnMenuTriggerFor]="tutoriales"><span>Tutoriales</span><hlm-menu-item-sub-indicator /></button>
-				<button hlmMenuItem [brnMenuTriggerFor]="ejemplos"><span>Ejemplos</span><hlm-menu-item-sub-indicator /></button>
+				<button hlmMenuItem (click)="dispatch('documentacion')">Manual de Usuario <hlm-menu-shortcut>F1</hlm-menu-shortcut></button>
+				<!-- <button hlmMenuItem [brnMenuTriggerFor]="tutoriales"><span>Tutoriales</span><hlm-menu-item-sub-indicator /></button>
+				<button hlmMenuItem [brnMenuTriggerFor]="ejemplos"><span>Ejemplos</span><hlm-menu-item-sub-indicator /></button> -->
 				<hlm-menu-separator />
-				<button hlmMenuItem (click)="dispatch('soporte-tecnico')">Soporte Técnico</button>
+				<!-- <button hlmMenuItem (click)="dispatch('soporte-tecnico')">Soporte Técnico</button> -->
 				<button hlmMenuItem (click)="dispatch('reportar-error')">Reportar Error</button>
 				<button hlmMenuItem (click)="dispatch('sugerir-mejora')">Sugerir Mejora</button>
 				<hlm-menu-separator />
-				<button hlmMenuItem (click)="dispatch('buscar-actualizaciones')">Buscar Actualizaciones</button>
+				<!-- <button hlmMenuItem (click)="dispatch('buscar-actualizaciones')">Buscar Actualizaciones</button> -->
 				<button hlmMenuItem (click)="dispatch('acerca-de')">Acerca de</button>
 			</hlm-menu>
 		</ng-template>

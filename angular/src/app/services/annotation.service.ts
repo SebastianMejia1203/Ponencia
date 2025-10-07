@@ -56,35 +56,26 @@ export class AnnotationService {
   private imageDimensions = { width: 0, height: 0 };
 
   constructor() {
-    console.log('🔧 Servicio de anotación inicializado con pywebview');
+    // Servicio inicializado
   }
 
   /** Cargar imágenes del proyecto actual usando ProjectService */
   async loadProjectImages(): Promise<void> {
     const project = this.projectService.project();
     if (!project) {
-      console.log('⚠️ No hay proyecto abierto para cargar imágenes.');
       this.clear();
       return;
     }
 
-    console.log(`🔄 Cargando imágenes del proyecto: ${project.name}`);
-
     try {
-      // Obtener la API de Python
-      console.log('🐍 Obteniendo API de Python...');
       const pythonApi = this.api.requireApi();
-
-      // Obtener la lista de imágenes desde Python
-      console.log('📋 Solicitando lista de imágenes...');
       const imageFilenames = await pythonApi.list_images();
-      console.log(`📋 Recibidas ${imageFilenames.length} imágenes:`, imageFilenames);
 
       // Crear objetos ImageData
       const images: ImageData[] = imageFilenames.map((filename: string) => ({
-        path: filename, // En pywebview el path es simplemente el filename
+        path: filename,
         filename: filename,
-        url: '' // Se cargará bajo demanda
+        url: ''
       }));
 
       this.imagesSubject.next(images);
@@ -93,11 +84,10 @@ export class AnnotationService {
       if (images.length > 0) {
         this.currentImageIndexSubject.next(0);
         await this.loadAnnotationsForCurrentImage();
-        console.log(`✅ Cargadas ${images.length} imágenes del proyecto.`);
       } else {
         this.currentImageIndexSubject.next(0);
         this.annotationsSubject.next([]);
-        console.log(`ℹ️ No se encontraron imágenes en el proyecto.`);
+        console.log('ℹ️ [ANNOTATION_SERVICE] No se encontraron imágenes en el proyecto.');
       }
     } catch (error) {
       console.error('Error cargando imágenes del proyecto:', error);
@@ -140,29 +130,21 @@ export class AnnotationService {
     const images = this.imagesSubject.value;
     const currentIndex = this.currentImageIndexSubject.value;
 
-    console.log(`🔍 getCurrentImageWithUrl: índice=${currentIndex}, total imágenes=${images.length}`);
-
     if (!images[currentIndex]) {
-      console.log(`⚠️ No hay imagen en el índice ${currentIndex}`);
       return null;
     }
 
     const image = images[currentIndex];
-    console.log(`📁 Procesando imagen: ${image.filename}`);
 
     // Si ya tiene URL cacheada, devolverla
     if (image.url && this.imageCache.has(image.filename)) {
-      console.log(`✅ Imagen ${image.filename} encontrada en cache`);
       return image;
     }
 
     // Cargar la imagen desde Python
     try {
-      console.log(`🐍 Solicitando imagen ${image.filename} desde Python...`);
       const pythonApi = this.api.requireApi();
       const response = await pythonApi.get_image_base64(image.filename);
-
-      console.log(`🐍 Respuesta de Python:`, { ok: response.ok, hasDataUrl: !!response.dataUrl });
 
       if (response.ok && response.dataUrl) {
         image.url = response.dataUrl;
@@ -173,14 +155,13 @@ export class AnnotationService {
         updatedImages[currentIndex] = image;
         this.imagesSubject.next(updatedImages);
 
-        console.log(`✅ Imagen ${image.filename} cargada correctamente`);
         return image;
       } else {
-        console.error('Error cargando imagen:', response.error);
+        console.error('❌ [ANNOTATION_SERVICE] Error cargando imagen:', response.error);
         return null;
       }
     } catch (error) {
-      console.error('Error obteniendo imagen actual:', error);
+      console.error('❌ [ANNOTATION_SERVICE] Error obteniendo imagen actual:', error);
       return null;
     }
   }
@@ -201,7 +182,10 @@ export class AnnotationService {
       const pythonApi = this.api.requireApi();
       const annotations = await pythonApi.load_annotations(currentImage.filename);
       this.annotationsSubject.next(annotations || []);
-      console.log(`📋 Cargadas ${annotations?.length || 0} anotaciones para: ${currentImage.filename}`);
+      // Solo log si hay anotaciones
+      if (annotations && annotations.length > 0) {
+        console.log(`📋 [ANNOTATION_SERVICE] Cargadas ${annotations.length} anotaciones para: ${currentImage.filename}`);
+      }
     } catch (error) {
       console.error('Error cargando anotaciones:', error);
       this.annotationsSubject.next([]);
@@ -221,7 +205,7 @@ export class AnnotationService {
     try {
       const pythonApi = this.api.requireApi();
       await pythonApi.save_annotations(currentImage.filename, annotations);
-      console.log(`💾 Guardadas ${annotations.length} anotaciones para: ${currentImage.filename}`);
+      // Guardado exitoso (sin log, es operación normal)
     } catch (error) {
       console.error('Error guardando anotaciones:', error);
       throw error;

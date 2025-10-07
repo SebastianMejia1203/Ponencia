@@ -1,4 +1,4 @@
-import { Component, signal, inject, OnInit, OnDestroy, ChangeDetectorRef, NgZone, ChangeDetectionStrategy } from '@angular/core';
+import { Component, signal, inject, OnInit, OnDestroy, ChangeDetectorRef, NgZone, ChangeDetectionStrategy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NgIcon, provideIcons } from '@ng-icons/core';
@@ -9,6 +9,10 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmCommandImports } from '@spartan-ng/helm/command';
 import { HlmIcon } from '@spartan-ng/helm/icon';
 import { HlmPopoverContent } from '@spartan-ng/helm/popover';
+import { BrnSelectImports } from '@spartan-ng/brain/select';
+import { HlmSelectImports } from '@spartan-ng/helm/select';
+import { ProjectService } from '../../services/project.service';
+import { PythonApiService } from '../../services/python-api.service';
 
 // Declaraciones globales para funciones Python
 declare global {
@@ -18,8 +22,6 @@ declare global {
     __trainingFinished?: () => void;
   }
 }
-
-
 
 interface Model {
   id: string;
@@ -53,6 +55,8 @@ interface Training {
   selector: 'app-entrenamiento',
   imports: [
     CommonModule,
+    BrnSelectImports,
+    HlmSelectImports,
     FormsModule,
     BrnCommandImports,
     HlmCommandImports,
@@ -75,6 +79,7 @@ export class Entrenamiento implements OnInit, OnDestroy {
   isTraining = false;
 
   selectedTask: 'detect' | 'segment' = 'detect';
+  isTaskLocked = false; // Se bloquea cuando hay un proyecto abierto
   selectedModel = 'yolo11n.pt'; // para segmentación: 'yolo11n-seg.pt'
   batchSize = 16;
   learningRate = 0.01;
@@ -144,6 +149,10 @@ export class Entrenamiento implements OnInit, OnDestroy {
   };
 
   private resourcesInterval: any = null;
+
+  // Estados de acordeones
+  isDatasetExpanded = true;
+  isResourcesExpanded = false;
 
   // Estados para combobox
   public currentModelData = signal<Model | undefined>(undefined);
@@ -309,7 +318,37 @@ export class Entrenamiento implements OnInit, OnDestroy {
 
   previousTrainings: Training[] = [];
 
-  constructor(private cdr: ChangeDetectorRef, private ngZone: NgZone) {}
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private ngZone: NgZone,
+    public projectService: ProjectService,
+    private pythonApi: PythonApiService
+  ) {
+    // Efecto para cargar automáticamente el data.yaml cuando se abre un proyecto
+    effect(() => {
+      const project = this.projectService.project();
+      if (project && project.root) {
+        // Cargar el data.yaml del proyecto automáticamente
+        this.loadProjectDataYaml(project);
+
+        // Establecer la tarea del proyecto y bloquearla
+        if (project.task) {
+          this.selectedTask = project.task as 'detect' | 'segment';
+          this.isTaskLocked = true;
+
+          // Ajustar el modelo según la tarea del proyecto
+          this.onTaskChange(this.selectedTask);
+
+          this.addLog(`🔒 Tarea del proyecto: ${project.task === 'detect' ? 'Detección' : 'Segmentación'}`);
+        }
+      } else {
+        // Si no hay proyecto, limpiar el dataset y desbloquear la tarea
+        this.datasetYamlPath = null;
+        this.isTaskLocked = false;
+        this.resetDatasetInfo();
+      }
+    });
+  }
 
   ngOnInit(): void {
     // Inicializar valores por defecto para combobox
@@ -359,6 +398,12 @@ export class Entrenamiento implements OnInit, OnDestroy {
     // Iniciar monitoreo de recursos del sistema
     this.startResourcesMonitoring();
 
+    // Escuchar cuando se cierra un proyecto
+    const projectClosedListener = () => {
+      this.resetComponentState();
+    };
+    document.addEventListener('project-closed', projectClosedListener);
+
     // Forzar detección inicial de cambios
     this.cdr.detectChanges();
   }
@@ -370,6 +415,47 @@ export class Entrenamiento implements OnInit, OnDestroy {
     window.__trainingFinished = undefined;
     // Detener monitoreo de recursos
     this.stopResourcesMonitoring();
+  }
+
+  /**
+   * Resetea completamente el estado del componente al cerrar un proyecto
+   */
+  private resetComponentState(): void {
+    this.ngZone.run(() => {
+      // Limpiar logs
+      this.trainingLogs = [];
+
+      // Resetear estado de entrenamiento
+      this.isTraining = false;
+      this.trainingProgress = 0;
+      this.currentEpoch = 0;
+      this.totalEpochs = 10;
+      this.trainingStatus = 'idle';
+      this.downloadProgress = 0;
+
+      // Limpiar métricas
+      this.metricsHistory = [];
+      this.currentMetrics = {
+        box_loss: 0,
+        seg_loss: 0,
+        cls_loss: 0,
+        dfl_loss: 0,
+        instances: 0
+      };
+      this.modelSummary = {};
+
+      // Resetear dataset
+      this.datasetYamlPath = null;
+      this.resetDatasetInfo();
+
+      // Desbloquear tarea
+      this.isTaskLocked = false;
+
+      // Forzar detección de cambios
+      this.cdr.detectChanges();
+
+      console.log('✅ [ENTRENAMIENTO] Estado del componente reseteado');
+    });
   }
 
   updateTrainingData(data: any) {
@@ -439,6 +525,47 @@ export class Entrenamiento implements OnInit, OnDestroy {
     if (this.metricsHistory.length === 0) return '0.0000';
     const latest = this.metricsHistory[this.metricsHistory.length - 1];
     return latest[metricName]?.toFixed(4) || '0.0000';
+  }
+
+  // Métodos para acordeones
+  toggleDataset(): void {
+    this.isDatasetExpanded = !this.isDatasetExpanded;
+  }
+
+  toggleResources(): void {
+    this.isResourcesExpanded = !this.isResourcesExpanded;
+  }
+
+  // Método para cargar el data.yaml del proyecto automáticamente
+  private async loadProjectDataYaml(project: any) {
+    try {
+      // Construir la ruta al data.yaml
+      // Prioridad: 1) dataYamlPath en project config, 2) data.yaml en root del proyecto
+      let dataYamlPath = project.dataYamlPath || `${project.root}\\data.yaml`;
+
+      // Normalizar la ruta para Windows (reemplazar / por \)
+      dataYamlPath = dataYamlPath.replace(/\//g, '\\');
+
+      // Asegurarse de que no haya dobles barras invertidas consecutivas
+      while (dataYamlPath.includes('\\\\')) {
+        dataYamlPath = dataYamlPath.replace(/\\\\/g, '\\');
+      }
+
+      this.datasetYamlPath = dataYamlPath;
+
+      // Establecer la ruta del dataset en el backend de Python
+      const setPathResult = await (window.pywebview?.api as any)?.set_dataset_yaml_path(dataYamlPath);
+      if (setPathResult && !setPathResult.ok) {
+        this.addLog(`⚠️ Advertencia al establecer ruta: ${setPathResult.error}`);
+      }
+
+      // Verificar el dataset automáticamente
+      await this.verificarDataset();
+    } catch (error) {
+      console.error('Error cargando data.yaml del proyecto:', error);
+      this.datasetInfo.error = 'Error al cargar el dataset del proyecto';
+      this.addLog(`❌ Error: ${error}`);
+    }
   }
 
   getMetricBarHeight(metricName: string, value: number): number {
@@ -615,6 +742,7 @@ export class Entrenamiento implements OnInit, OnDestroy {
       this.datasetInfo.loading = true;
       this.datasetInfo.error = null;
       this.addLog('🔍 Verificando dataset...');
+      this.addLog(`📍 Ruta del dataset: ${this.datasetYamlPath}`);
     });
 
     try {
@@ -847,8 +975,14 @@ export class Entrenamiento implements OnInit, OnDestroy {
   }
 
   async updateSystemResources() {
+    // Solo intentar obtener recursos si la API está lista
+    if (!this.pythonApi.apiReady()) {
+      return;
+    }
+
     try {
-      const resources = await (window as any).pywebview.api.get_system_resources() as any;
+      const api = this.pythonApi.requireApi();
+      const resources = await api.get_system_resources();
 
       this.systemResources = {
         ...resources,
@@ -858,10 +992,13 @@ export class Entrenamiento implements OnInit, OnDestroy {
 
       this.cdr.detectChanges();
     } catch (error) {
-      console.error('Error obteniendo recursos del sistema:', error);
-      this.systemResources.error = 'Error al obtener recursos del sistema';
-      this.systemResources.loading = false;
-      this.cdr.detectChanges();
+      // Solo mostrar error si realmente falla, no si la API no está lista
+      if (this.pythonApi.apiReady()) {
+        console.error('[ENTRENAMIENTO] Error obteniendo recursos del sistema:', error);
+        this.systemResources.error = 'Error al obtener recursos del sistema';
+        this.systemResources.loading = false;
+        this.cdr.detectChanges();
+      }
     }
   }
 

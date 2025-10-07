@@ -1,4 +1,5 @@
 import { Component, signal, OnInit, OnDestroy, inject, ElementRef, ViewChild, ChangeDetectorRef } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NgIcon, provideIcons } from '@ng-icons/core';
@@ -105,15 +106,30 @@ export class Anotacion implements OnInit, OnDestroy {
   // Clases del proyecto - se actualizarán desde el proyecto actual
   classes: ClassData[] = [];
 
+  // Observable del proyecto (contexto de inyección válido)
+  private project$ = toObservable(this.projectService.project);
+
   ngOnInit() {
     this.loadProjectConfiguration();
     this.setupEventListeners();
     this.subscribeToAnnotationService();
 
-    // Si ya hay un proyecto abierto, cargar las imágenes
+    // CRÍTICO: Suscribirse a cambios en el proyecto
+    this.subscriptions.push(
+      this.project$.subscribe(project => {
+        if (project) {
+          // Proyecto detectado, cargar imágenes (sin log, operación normal)
+          setTimeout(() => {
+            this.loadProjectConfiguration();
+            this.annotationService.loadProjectImages();
+          }, 200);
+        }
+      })
+    );
+
+    // Si ya hay un proyecto abierto al inicializar, cargar las imágenes
     const currentProject = this.projectService.project();
     if (currentProject) {
-      console.log('🔄 Proyecto ya abierto, cargando imágenes...');
       setTimeout(() => {
         this.annotationService.loadProjectImages();
       }, 100);
@@ -142,7 +158,7 @@ export class Anotacion implements OnInit, OnDestroy {
     this.subscriptions.push(
       this.annotationService.images$.subscribe(images => {
         this.totalImages = images.length;
-        console.log(`Total de imágenes cargadas: ${this.totalImages}`);
+        // Sin log, actualización normal del contador
       })
     );
 
@@ -158,17 +174,13 @@ export class Anotacion implements OnInit, OnDestroy {
 
         // Obtener la imagen actual con URL cargada
         try {
-          console.log('🔄 Solicitando imagen actual con URL...');
           this.currentImageData = await this.annotationService.getCurrentImageWithUrl();
           if (this.currentImageData) {
             this.currentImageUrl = this.currentImageData.url;
-            this.imageLoaded = false; // Reset para esperar nueva carga
-            console.log(`🖼️ Imagen actual: ${this.currentImage}/${this.totalImages} - ${this.currentImageData.filename}`);
-            console.log(`🔗 URL de imagen:`, this.currentImageUrl ? 'Cargada (data:image...)' : 'NO disponible');
+            this.imageLoaded = false;
 
             if (this.currentImageUrl && this.imageElement?.nativeElement) {
               setTimeout(() => {
-                console.log('🔄 Simulando carga de imagen desde cache');
                 this.onImageLoad();
               }, 100);
             }
@@ -178,7 +190,9 @@ export class Anotacion implements OnInit, OnDestroy {
           } else {
             this.currentImageUrl = '';
             this.imageLoaded = false;
-            console.log(`⚠️ No se pudo cargar la imagen ${this.currentImage} - getCurrentImageWithUrl devolvió null`);
+            if (this.projectService.project()) {
+              console.log(`⚠️ [ANOTACION] No se pudo cargar la imagen ${this.currentImage}`);
+            }
           }
         } catch (error) {
           console.error('❌ Error obteniendo imagen actual:', error);
@@ -191,24 +205,18 @@ export class Anotacion implements OnInit, OnDestroy {
     // Suscribirse a las anotaciones
     this.subscriptions.push(
       this.annotationService.annotations$.subscribe(annotations => {
-        console.log(`📋 Recibidas ${annotations.length} anotaciones del servicio:`, annotations);
         this.currentAnnotations = annotations;
-        console.log(`📋 Anotaciones asignadas al componente: ${this.currentAnnotations.length}`);
+        // Anotaciones actualizadas (sin log, operación normal)
 
         // CRÍTICO: Forzar detección de cambios para que se muestren los polígonos inmediatamente
         this.cdr.detectChanges();
-        console.log(`📋 Detección de cambios forzada después de cargar anotaciones`);
       })
     );
 
     // Suscribirse al estado de imágenes disponibles
     this.subscriptions.push(
       this.annotationService.hasImages$.subscribe(hasImages => {
-        if (hasImages) {
-          console.log('✅ Imágenes disponibles para anotación');
-        } else {
-          console.log('ℹ️ No hay imágenes cargadas');
-        }
+        // Estado actualizado (sin log)
       })
     );
   }
@@ -349,10 +357,10 @@ export class Anotacion implements OnInit, OnDestroy {
     const project = this.projectService.project();
 
     if (!project || !project.classes || project.classes.length === 0) {
-      console.log('ℹ️ No hay proyecto abierto o sin clases configuradas, usando configuración por defecto');
+      // Usar configuración por defecto sin log (normal al iniciar sin proyecto)
       this.classes = this.getDefaultClasses();
     } else {
-      console.log('🔄 Cargando configuración del proyecto:', project);
+      // Cargar configuración del proyecto (sin log, operación normal)
       this.classes = this.generateClassesFromProject(project.classes);
     }
 
@@ -515,7 +523,6 @@ export class Anotacion implements OnInit, OnDestroy {
 
   clearPolygon(): void {
     this.currentPolygonPoints = [];
-    console.log('Polígono limpiado');
   }
 
   /**
@@ -568,7 +575,6 @@ export class Anotacion implements OnInit, OnDestroy {
     this.isDrawingBoundingBox = false;
     this.boundingBoxStartPoint = null;
     this.currentBoundingBox = null;
-    console.log('Caja delimitadora limpiada');
   }
 
   /**
@@ -717,8 +723,6 @@ export class Anotacion implements OnInit, OnDestroy {
     // Establecer dimensiones en el servicio para normalizaciones futuras
     this.annotationService.setImageDimensions(this.imageWidth, this.imageHeight);
 
-    console.log(`🖼️ Imagen cargada: ${this.imageWidth}x${this.imageHeight}`);
-
     // CRÍTICO: Forzar detección de cambios después de cargar la imagen
     this.cdr.detectChanges();
   }
@@ -727,12 +731,9 @@ export class Anotacion implements OnInit, OnDestroy {
    * Simular carga de imagen desde cache para inicializar área de trabajo
    */
   private simulateImageLoadFromCache(): void {
-    console.log('🔄 Simulando carga de imagen desde cache...');
-
     if (this.imageElement?.nativeElement?.complete && this.imageElement.nativeElement.naturalWidth > 0) {
       // La imagen ya está cargada, ejecutar onImageLoad
       this.onImageLoad();
-      console.log('✅ Imagen ya estaba cargada, área de trabajo inicializada');
     }
   }
 

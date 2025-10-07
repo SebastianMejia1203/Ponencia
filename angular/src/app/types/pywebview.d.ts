@@ -58,6 +58,14 @@ export interface PyWebviewApi {
   select_images_dialog(title?: string): Promise<{ ok: boolean; paths?: string[]; error?: string }>;
   /** Copia rutas de imágenes al dataset del proyecto */
   copy_image_paths(paths: string[]): Promise<{ ok: boolean; copied: number; images: string[]; elapsed?: number }>;
+  /** Obtiene recursos del sistema (CPU, memoria, GPU, etc.) */
+  get_system_resources(): Promise<SystemResources>;
+  /** Obtiene la lista de proyectos recientes */
+  get_recent_projects(): Promise<{ ok: boolean; projects: RecentProject[]; error?: string }>;
+  /** Agrega un proyecto a la lista de recientes */
+  add_recent_project(name: string, configPath: string): Promise<{ ok: boolean; projects?: RecentProject[]; error?: string }>;
+  /** Limpia la lista de proyectos recientes */
+  clear_recent_projects(): Promise<{ ok: boolean; error?: string }>;
   exit_app(): Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -103,6 +111,40 @@ export interface YOLOTrainingParams {
   fraction?: number;       // para dataset parcial
   freeze?: number|number[];
   workers?: number;
+}
+
+export interface SystemResources {
+  cpu: {
+    percent: number;
+    count: number;
+  };
+  memory: {
+    percent: number;
+    used_gb: number;
+    total_gb: number;
+  };
+  gpu: {
+    gpu_available: boolean;
+    gpu_name: string;
+    gpu_memory_used_gb: number;
+    gpu_memory_total_gb: number;
+    gpu_utilization: number;
+    gpu_memory_percent: number;
+    gpu_temperature: number;
+  };
+  disk: {
+    percent: number;
+  };
+  process: {
+    memory_mb: number;
+    cpu_percent: number;
+  };
+}
+
+export interface RecentProject {
+  name: string;
+  configPath: string;
+  openedAt: number;
 }
 
 export {};

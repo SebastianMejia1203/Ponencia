@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
+import { PythonApiService } from './python-api.service';
 
 export interface RecentProjectEntry {
   name: string;
@@ -6,42 +7,66 @@ export interface RecentProjectEntry {
   openedAt: number;   // timestamp último uso
 }
 
-const STORAGE_KEY = 'recent-projects-v1';
 const MAX_RECENTS = 10;
 
 @Injectable({ providedIn: 'root' })
 export class RecentProjectsService {
   readonly items = signal<RecentProjectEntry[]>([]);
+  private pythonApi = inject(PythonApiService);
 
   constructor() {
     this.load();
   }
 
-  private load() {
+  private async load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed: RecentProjectEntry[] = JSON.parse(raw);
-        this.items.set(parsed.slice(0, MAX_RECENTS));
+      // Esperar a que la API esté lista
+      if (!this.pythonApi.apiReady()) {
+        // Intentar cargar después de un pequeño delay
+        setTimeout(() => this.load(), 500);
+        return;
       }
-    } catch {}
+
+      const api = this.pythonApi.api();
+      if (!api) return;
+
+      const response = await api.get_recent_projects();
+      if (response.ok && response.projects) {
+        this.items.set(response.projects.slice(0, MAX_RECENTS));
+      }
+    } catch (error) {
+      console.error('[RecentProjectsService] Error cargando proyectos recientes:', error);
+    }
   }
 
-  private persist() {
+  async touch(name: string, configPath: string) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.items()));
-    } catch {}
+      const api = this.pythonApi.requireApi();
+      const response = await api.add_recent_project(name, configPath);
+
+      if (response.ok && response.projects) {
+        this.items.set(response.projects.slice(0, MAX_RECENTS));
+      }
+    } catch (error) {
+      console.error('[RecentProjectsService] Error agregando proyecto reciente:', error);
+    }
   }
 
-  touch(name: string, configPath: string) {
-    const list = this.items().filter(p => p.configPath !== configPath);
-    list.unshift({ name, configPath, openedAt: Date.now() });
-    this.items.set(list.slice(0, MAX_RECENTS));
-    this.persist();
+  async clear() {
+    try {
+      const api = this.pythonApi.requireApi();
+      const response = await api.clear_recent_projects();
+
+      if (response.ok) {
+        this.items.set([]);
+      }
+    } catch (error) {
+      console.error('[RecentProjectsService] Error limpiando proyectos recientes:', error);
+    }
   }
 
-  clear() {
-    this.items.set([]);
-    this.persist();
+  // Método para refrescar la lista manualmente
+  async refresh() {
+    await this.load();
   }
 }

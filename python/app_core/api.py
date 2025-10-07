@@ -58,37 +58,111 @@ class Api:
         d.mkdir(exist_ok=True)
         return d
 
+    def _read_training_metrics(self, train_dir: Path, task: str) -> Dict[str, float]:
+        """Lee las métricas de entrenamiento desde results.csv
+        
+        Args:
+            train_dir: Directorio de entrenamiento (ej: runs/train, runs/detect/train)
+            task: Tipo de tarea ('detect' o 'segment')
+            
+        Returns:
+            Dict con métricas: mAP, precision, recall (o valores por defecto si no existe el archivo)
+        """
+        metrics = {
+            'mAP': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'epochs': 0
+        }
+        
+        try:
+            results_csv = train_dir / 'results.csv'
+            if not results_csv.exists():
+                return metrics
+            
+            import csv
+            
+            # Leer el archivo CSV
+            with open(results_csv, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                
+                if not rows:
+                    return metrics
+                
+                # Tomar la última fila (última época)
+                last_row = rows[-1]
+                
+                # Extraer métricas según el tipo de tarea
+                # Para segmentación: usar métricas de máscaras (M)
+                # Para detección: usar métricas de boxes (B)
+                if task == 'segment':
+                    # Métricas de máscaras
+                    metrics['mAP'] = float(last_row.get('metrics/mAP50(M)', 0.0))
+                    metrics['precision'] = float(last_row.get('metrics/precision(M)', 0.0))
+                    metrics['recall'] = float(last_row.get('metrics/recall(M)', 0.0))
+                else:
+                    # Métricas de boxes (detección)
+                    metrics['mAP'] = float(last_row.get('metrics/mAP50(B)', 0.0))
+                    metrics['precision'] = float(last_row.get('metrics/precision(B)', 0.0))
+                    metrics['recall'] = float(last_row.get('metrics/recall(B)', 0.0))
+                
+                # Número de épocas (última época registrada)
+                metrics['epochs'] = int(last_row.get('epoch', len(rows)))
+                
+        except Exception as e:
+            print(f"[_read_training_metrics] Error leyendo results.csv: {e}")
+        
+        return metrics
+
     def _load_images(self):
         """Carga imágenes desde las ubicaciones soportadas.
 
         Prioridad/orden:
-          1. images/ (raíz simple)
-          2. dataset/train/images
-          3. dataset/val/images
-          4. dataset/test/images
+          1. dataset/train/images
+          2. dataset/val/images
+          3. dataset/test/images
 
         Todas se listan de forma plana (solo nombres) para mantener compatibilidad actual.
         Si existen duplicados de nombre en diferentes carpetas, se toma la primera aparición
         (conserva correspondencia anotaciones simples por nombre).
         """
+        print('[Api._load_images] Iniciando carga de imágenes...')
+        print(f'[Api._load_images] Directorio del proyecto: {self._project_dir()}')
+        
         roots = [
-            self._project_dir() / 'images',
             self._project_dir() / 'dataset' / 'train' / 'images',
             self._project_dir() / 'dataset' / 'val' / 'images',
             self._project_dir() / 'dataset' / 'test' / 'images',
         ]
+        
+        print(f'[Api._load_images] Buscando imágenes en {len(roots)} ubicaciones:')
+        for root in roots:
+            print(f'  - {root} (existe: {root.exists()})')
+        
         collected = {}
         for dir_path in roots:
             try:
                 if not dir_path.exists():
                     continue
+                
+                images_in_dir = []
                 for p in dir_path.iterdir():
                     if p.suffix.lower() in IMAGE_EXTS and p.name not in collected:
                         collected[p.name] = p
+                        images_in_dir.append(p.name)
+                
+                if images_in_dir:
+                    print(f'[Api._load_images] Encontradas {len(images_in_dir)} imágenes en {dir_path}')
             except Exception as e:
                 print('[Api._load_images] Error leyendo', dir_path, e)
+        
         # Orden alfabético por nombre
         self.images = [collected[k] for k in sorted(collected.keys())]
+        print(f'[Api._load_images] Total imágenes cargadas: {len(self.images)}')
+        if self.images:
+            print(f'[Api._load_images] Primeras 5 imágenes: {[img.name for img in self.images[:5]]}')
+        
         # Mapear anotaciones (en carpeta de anotaciones central)
         self.annotations_index = {img.name: self._annotations_dir() / f"{img.stem}.json" for img in self.images}
 
@@ -149,17 +223,17 @@ class Api:
                 'total_epochs': total_epochs
             }
         
-        # Progreso de época
-        epoch_match = re.search(r'(\d+)/(\d+)\s+\d+G\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\d+)', msg)
-        if epoch_match:
-            current_epoch = int(epoch_match.group(1))
-            total_epochs = int(epoch_match.group(2))
-            box_loss = float(epoch_match.group(3))
-            seg_loss = float(epoch_match.group(4))
-            cls_loss = float(epoch_match.group(5))
-            dfl_loss = float(epoch_match.group(6))
-            instances = int(epoch_match.group(7))
-            img_size = int(epoch_match.group(8))
+        # Progreso de época - Segmentación (4 pérdidas: box, seg, cls, dfl)
+        epoch_seg_match = re.search(r'(\d+)/(\d+)\s+\d+G\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\d+):', msg)
+        if epoch_seg_match:
+            current_epoch = int(epoch_seg_match.group(1))
+            total_epochs = int(epoch_seg_match.group(2))
+            box_loss = float(epoch_seg_match.group(3))
+            seg_loss = float(epoch_seg_match.group(4))
+            cls_loss = float(epoch_seg_match.group(5))
+            dfl_loss = float(epoch_seg_match.group(6))
+            instances = int(epoch_seg_match.group(7))
+            img_size = int(epoch_seg_match.group(8))
             
             self._training_data['current_epoch'] = current_epoch
             self._training_data['total_epochs'] = total_epochs
@@ -168,6 +242,40 @@ class Api:
                 'epoch': current_epoch,
                 'box_loss': box_loss,
                 'seg_loss': seg_loss,
+                'cls_loss': cls_loss,
+                'dfl_loss': dfl_loss,
+                'instances': instances,
+                'image_size': img_size
+            }
+            
+            self._training_data['metrics_history'].append(metrics)
+            
+            return {
+                'type': 'epoch_progress',
+                'current_epoch': current_epoch,
+                'total_epochs': total_epochs,
+                'metrics': metrics,
+                'progress_percent': (current_epoch / total_epochs) * 100
+            }
+        
+        # Progreso de época - Detección (3 pérdidas: box, cls, dfl)
+        epoch_det_match = re.search(r'(\d+)/(\d+)\s+\d+G\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\d+):', msg)
+        if epoch_det_match:
+            current_epoch = int(epoch_det_match.group(1))
+            total_epochs = int(epoch_det_match.group(2))
+            box_loss = float(epoch_det_match.group(3))
+            cls_loss = float(epoch_det_match.group(4))
+            dfl_loss = float(epoch_det_match.group(5))
+            instances = int(epoch_det_match.group(6))
+            img_size = int(epoch_det_match.group(7))
+            
+            self._training_data['current_epoch'] = current_epoch
+            self._training_data['total_epochs'] = total_epochs
+            
+            metrics = {
+                'epoch': current_epoch,
+                'box_loss': box_loss,
+                'seg_loss': 0,  # No hay seg_loss en detección
                 'cls_loss': cls_loss,
                 'dfl_loss': dfl_loss,
                 'instances': instances,
@@ -238,13 +346,55 @@ class Api:
         except Exception as e:
             return {'ok': False, 'error': str(e)}
     
+    def set_dataset_yaml_path(self, yaml_path: str):
+        """Establece la ruta del dataset YAML (usado cuando se carga automáticamente desde un proyecto)"""
+        try:
+            print(f"[set_dataset_yaml_path] Recibiendo ruta: {yaml_path}")
+            
+            # Normalizar la ruta para Windows
+            if os.name == 'nt':
+                yaml_path = yaml_path.replace('/', '\\')
+            
+            p = Path(yaml_path).expanduser().resolve()
+            print(f"[set_dataset_yaml_path] Ruta resuelta: {p}")
+            print(f"[set_dataset_yaml_path] Existe: {p.exists()}")
+            
+            if not p.exists():
+                error_msg = f'Archivo YAML no encontrado en: {p}'
+                print(f"[set_dataset_yaml_path] ERROR: {error_msg}")
+                return {'ok': False, 'error': error_msg}
+            
+            if p.suffix.lower() not in ('.yaml', '.yml'):
+                return {'ok': False, 'error': 'El archivo debe ser .yaml o .yml'}
+            
+            self._yaml_path = p
+            print(f"[set_dataset_yaml_path] Ruta del dataset establecida correctamente: {self._yaml_path}")
+            return {'ok': True, 'path': str(p)}
+        except Exception as e:
+            print(f"[set_dataset_yaml_path] Error: {e}")
+            return {'ok': False, 'error': str(e)}
+    
     def verify_dataset(self, yaml_path: str):
         """Verifica un dataset YOLO y retorna información sobre imágenes y clases"""
         import yaml
         try:
+            # Log de depuración
+            print(f"[verify_dataset] Recibido yaml_path: {yaml_path}")
+            print(f"[verify_dataset] Tipo: {type(yaml_path)}")
+            
+            # Normalizar la ruta para Windows
+            # Reemplazar barras diagonales por backslash en Windows
+            if os.name == 'nt':
+                yaml_path = yaml_path.replace('/', '\\')
+            
             yaml_file = Path(yaml_path).expanduser().resolve()
+            print(f"[verify_dataset] Ruta resuelta: {yaml_file}")
+            print(f"[verify_dataset] Existe: {yaml_file.exists()}")
+            
             if not yaml_file.exists():
-                return {'ok': False, 'error': 'Archivo YAML no encontrado'}
+                error_msg = f'Archivo YAML no encontrado en: {yaml_file}'
+                print(f"[verify_dataset] ERROR: {error_msg}")
+                return {'ok': False, 'error': error_msg}
                 
             with open(yaml_file, 'r', encoding='utf-8') as f:
                 dataset_config = yaml.safe_load(f)
@@ -432,6 +582,13 @@ class Api:
                     cmd.append(f'{yolo_param}={value}')
                     params_added.add(yolo_param)
             
+            # Si hay un proyecto abierto y no se especificó 'project', usar el directorio runs del proyecto
+            if self.current_project and 'project' not in params_added:
+                project_runs_dir = self.current_project / 'runs'
+                cmd.append(f'project={project_runs_dir}')
+                params_added.add('project')
+                self._push_log(f'📁 Resultados se guardarán en: {project_runs_dir}')
+            
             # Manejar learning rate (prioridad: lr0 > learningRate)
             if 'lr0' in self._last_params and 'lr0' not in params_added:
                 cmd.append(f'lr0={self._last_params["lr0"]}')
@@ -459,9 +616,15 @@ class Api:
             self._push_log(f'Comando: {" ".join(cmd)}')
             self._push_log('Iniciando proceso de entrenamiento...')
             
-            # Usar el directorio del proyecto como working directory
-            # Esto permite que YOLO descargue modelos y guarde resultados en el lugar correcto
-            working_dir = Path.cwd()  # Usar directorio actual donde está la aplicación
+            # IMPORTANTE: Usar el directorio del data.yaml como working directory
+            # Esto permite que YOLO resuelva las rutas relativas correctamente
+            # Si el data.yaml tiene path: . entonces las rutas son relativas a su ubicación
+            if self._yaml_path:
+                working_dir = self._yaml_path.parent
+                self._push_log(f'📂 Directorio de trabajo: {working_dir}')
+            else:
+                working_dir = Path.cwd()
+                self._push_log(f'⚠️ Sin data.yaml, usando directorio actual: {working_dir}')
             
             # Iniciar el proceso con variables de entorno apropiadas
             env = os.environ.copy()
@@ -688,8 +851,11 @@ class Api:
             return False
         
         # Patrones de métricas de época - SIEMPRE mostrar estas líneas importantes
-        epoch_metrics_pattern = re.search(r'^(\d+)/(\d+)\s+\d+G\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+\d+\s+\d+:', line)
-        if epoch_metrics_pattern:
+        # Segmentación: epoch/total GPU box seg cls dfl instances size
+        epoch_seg_pattern = re.search(r'^(\d+)/(\d+)\s+\d+G\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+\d+\s+\d+:', line)
+        # Detección: epoch/total GPU box cls dfl instances size
+        epoch_det_pattern = re.search(r'^(\d+)/(\d+)\s+\d+G\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+\d+\s+\d+:', line)
+        if epoch_seg_pattern or epoch_det_pattern:
             # Siempre mostrar las métricas de época
             return True
         
@@ -866,7 +1032,6 @@ class Api:
 
         # Carpetas base
         folders = [
-            'images',
             'labels',
             'dataset/train/images', 'dataset/train/labels',
             'dataset/val/images', 'dataset/val/labels',
@@ -894,6 +1059,7 @@ class Api:
             'model': yolo_model,
             'segmentationType': segmentation_type,
             'imageSize': image_size,
+            'dataYamlPath': str(p / 'data.yaml'),
             'splits': {
                 'train': train_split,
                 'val': val_split,
@@ -906,35 +1072,28 @@ class Api:
         with open(p / PROJECT_STATE_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
-        # Generar dataset.yaml siguiendo formato YOLO (objetos.txt / segmentacion.txt)
+        # Generar data.yaml siguiendo formato YOLO estándar
+        # IMPORTANTE: data.yaml solo debe contener campos estándar de YOLO
+        # Los campos adicionales (task, splits, augmentation, etc.) van en project_config.json
         dataset_yaml = {
             'path': '.',  # relativo al root del proyecto
             'train': 'dataset/train/images',
             'val': 'dataset/val/images',
             'test': 'dataset/test/images',
-            'task': 'segment' if task == 'segment' else 'detect',
-            'imgsz': image_size,
-            'names': {i: cls for i, cls in enumerate(classes)},
-            'splits': {
-                'train': train_split,
-                'val': val_split,
-                'test': test_split
-            },
-            'augmentation': augmentation
+            'names': {i: cls for i, cls in enumerate(classes)}
         }
 
-        # Escribir dataset.yaml
+        # Escribir data.yaml
         try:
             import yaml  # type: ignore
-            with open(p / 'dataset.yaml', 'w', encoding='utf-8') as f:
+            with open(p / 'data.yaml', 'w', encoding='utf-8') as f:
                 yaml.safe_dump(dataset_yaml, f, allow_unicode=True, sort_keys=False)
         except Exception:  # ImportError o safe_dump error
-            with open(p / 'dataset.yaml', 'w', encoding='utf-8') as f:
+            with open(p / 'data.yaml', 'w', encoding='utf-8') as f:
                 f.write('path: .\n')
                 f.write('train: dataset/train/images\n')
                 f.write('val: dataset/val/images\n')
                 f.write('test: dataset/test/images\n')
-                f.write(f"task: {dataset_yaml['task']}\n")
                 f.write('names:\n')
                 for i, cls in enumerate(classes):
                     f.write(f"  {i}: {cls}\n")
@@ -966,7 +1125,11 @@ class Api:
 
     def list_images(self):
         self._ensure_project_open()
-        return [img.name for img in self.images]
+        image_names = [img.name for img in self.images]
+        print(f'[Api.list_images] Devolviendo {len(image_names)} imágenes:', image_names[:5] if len(image_names) > 5 else image_names)
+        print(f'[Api.list_images] Total self.images: {len(self.images)}')
+        print(f'[Api.list_images] current_project: {self.current_project}')
+        return image_names
 
     def get_image_base64(self, filename: str):
         """Devuelve {'ok':True,'dataUrl':...} o {'ok':False,'error':...}"""
@@ -1171,18 +1334,10 @@ class Api:
                     return {'ok': False, 'error': f'No se pudo abrir el diálogo de archivo: {fe2}'}
             print('[Api.select_project_config] Resultado raw:', result)
             if not result:
-                # Fallback: intentar diálogo de carpeta y buscar project_config.json
-                folder_type = getattr(webview, 'FOLDER_DIALOG', 0)
-                print('[Api.select_project_config] Sin archivo seleccionado, intentando fallback carpeta')
-                folder_res = window.create_file_dialog(folder_type, allow_multiple=False, directory='.')
-                print('[Api.select_project_config] Resultado carpeta raw:', folder_res)
-                if not folder_res:
-                    return {'ok': False}
-                candidate_dir = Path(folder_res[0]).expanduser().resolve()
-                cfg_candidate = candidate_dir / PROJECT_STATE_FILE
-                if cfg_candidate.exists():
-                    return {'ok': True, 'path': str(cfg_candidate)}
-                return {'ok': False, 'error': f'No se seleccionó archivo y en la carpeta no existe {PROJECT_STATE_FILE}'}
+                # Usuario canceló la selección
+                print('[Api.select_project_config] Usuario canceló la selección')
+                return {'ok': False}
+            
             path = Path(result[0]).expanduser().resolve()
             if path.name != PROJECT_STATE_FILE:
                 # Si usuario eligió otra cosa, intentar detectar si es carpeta con el config dentro
@@ -1287,68 +1442,241 @@ class Api:
             }
 
     def get_trained_models(self):
-        """Obtiene la lista de modelos entrenados del proyecto actual"""
+        """Obtiene la lista de modelos entrenados del proyecto actual, ordenados del más reciente al más antiguo"""
         try:
             if not self.current_project:
-                return {'models': [], 'error': 'No hay proyecto abierto'}
+                return {'ok': False, 'models': [], 'error': 'No hay proyecto abierto'}
             
-            # Buscar modelos en runs/detect/train* y runs/segment/train*
+            # Buscar modelos en runs/train* directamente (nueva estructura)
+            # También buscar en runs/detect/train* y runs/segment/train* (estructura antigua)
             runs_dir = Path(self.current_project) / 'runs'
             models = []
             
-            if runs_dir.exists():
-                # Buscar entrenamientos de detección
-                detect_dir = runs_dir / 'detect'
-                if detect_dir.exists():
-                    for train_dir in detect_dir.glob('train*'):
-                        weights_dir = train_dir / 'weights'
-                        if weights_dir.exists():
-                            best_model = weights_dir / 'best.pt'
-                            last_model = weights_dir / 'last.pt'
-                            
-                            if best_model.exists():
-                                # Obtener información del modelo
-                                stat = best_model.stat()
-                                models.append({
-                                    'id': f'detect_{train_dir.name}',
-                                    'name': f'YOLO11_detect_{train_dir.name}',
-                                    'label': f'YOLO11 Detección ({train_dir.name})',
-                                    'value': f'detect_{train_dir.name}',
-                                    'path': str(best_model),
-                                    'task': 'detect',
-                                    'date': str(datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d')),
-                                    'size': f'{stat.st_size / 1024 / 1024:.1f} MB',
-                                    'accuracy': 0.0  # Se podría obtener del results.csv si existe
-                                })
-                
-                # Buscar entrenamientos de segmentación
-                segment_dir = runs_dir / 'segment'
-                if segment_dir.exists():
-                    for train_dir in segment_dir.glob('train*'):
-                        weights_dir = train_dir / 'weights'
-                        if weights_dir.exists():
-                            best_model = weights_dir / 'best.pt'
-                            
-                            if best_model.exists():
-                                # Obtener información del modelo
-                                stat = best_model.stat()
-                                models.append({
-                                    'id': f'segment_{train_dir.name}',
-                                    'name': f'YOLO11_segment_{train_dir.name}',
-                                    'label': f'YOLO11 Segmentación ({train_dir.name})',
-                                    'value': f'segment_{train_dir.name}',
-                                    'path': str(best_model),
-                                    'task': 'segment',
-                                    'date': str(datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d')),
-                                    'size': f'{stat.st_size / 1024 / 1024:.1f} MB',
-                                    'accuracy': 0.0  # Se podría obtener del results.csv si existe
-                                })
+            if not runs_dir.exists():
+                return {'ok': True, 'models': [], 'message': 'No hay modelos entrenados aún'}
             
-            return {'models': models, 'ok': True}
+            # Buscar entrenamientos directos en runs/train*
+            for train_dir in runs_dir.glob('train*'):
+                if train_dir.is_dir():
+                    weights_dir = train_dir / 'weights'
+                    if weights_dir.exists():
+                        best_model = weights_dir / 'best.pt'
+                        
+                        if best_model.exists():
+                            stat = best_model.stat()
+                            
+                            # Intentar determinar el tipo de tarea del archivo args.yaml
+                            task = 'detect'  # Por defecto
+                            args_file = train_dir / 'args.yaml'
+                            if args_file.exists():
+                                try:
+                                    import yaml
+                                    with open(args_file, 'r') as f:
+                                        args = yaml.safe_load(f)
+                                        task = args.get('task', 'detect')
+                                except:
+                                    pass
+                            
+                            # Leer métricas desde results.csv
+                            training_metrics = self._read_training_metrics(train_dir, task)
+                            
+                            task_label = 'Detección' if task == 'detect' else 'Segmentación'
+                            
+                            models.append({
+                                'id': f'{task}_{train_dir.name}',
+                                'name': f'YOLO11_{task}_{train_dir.name}',
+                                'label': f'YOLO11 {task_label} ({train_dir.name})',
+                                'value': f'{task}_{train_dir.name}',
+                                'path': str(best_model),
+                                'task': task,
+                                'date': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
+                                'size': f'{stat.st_size / 1024 / 1024:.1f} MB',
+                                'accuracy': training_metrics['mAP'],
+                                'mAP': training_metrics['mAP'],
+                                'precision': training_metrics['precision'],
+                                'recall': training_metrics['recall'],
+                                'epochs': training_metrics['epochs'],
+                                'timestamp': stat.st_mtime  # Para ordenar
+                            })
+            
+            # Buscar entrenamientos de detección (estructura antigua)
+            detect_dir = runs_dir / 'detect'
+            if detect_dir.exists():
+                for train_dir in detect_dir.glob('train*'):
+                    weights_dir = train_dir / 'weights'
+                    if weights_dir.exists():
+                        best_model = weights_dir / 'best.pt'
+                        
+                        if best_model.exists():
+                            stat = best_model.stat()
+                            
+                            # Leer métricas desde results.csv
+                            training_metrics = self._read_training_metrics(train_dir, 'detect')
+                            
+                            models.append({
+                                'id': f'detect_{train_dir.name}',
+                                'name': f'YOLO11_detect_{train_dir.name}',
+                                'label': f'YOLO11 Detección ({train_dir.name})',
+                                'value': f'detect_{train_dir.name}',
+                                'path': str(best_model),
+                                'task': 'detect',
+                                'date': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
+                                'size': f'{stat.st_size / 1024 / 1024:.1f} MB',
+                                'accuracy': training_metrics['mAP'],
+                                'mAP': training_metrics['mAP'],
+                                'precision': training_metrics['precision'],
+                                'recall': training_metrics['recall'],
+                                'epochs': training_metrics['epochs'],
+                                'timestamp': stat.st_mtime
+                            })
+            
+            # Buscar entrenamientos de segmentación (estructura antigua)
+            segment_dir = runs_dir / 'segment'
+            if segment_dir.exists():
+                for train_dir in segment_dir.glob('train*'):
+                    weights_dir = train_dir / 'weights'
+                    if weights_dir.exists():
+                        best_model = weights_dir / 'best.pt'
+                        
+                        if best_model.exists():
+                            stat = best_model.stat()
+                            
+                            # Leer métricas desde results.csv
+                            training_metrics = self._read_training_metrics(train_dir, 'segment')
+                            
+                            models.append({
+                                'id': f'segment_{train_dir.name}',
+                                'name': f'YOLO11_segment_{train_dir.name}',
+                                'label': f'YOLO11 Segmentación ({train_dir.name})',
+                                'value': f'segment_{train_dir.name}',
+                                'path': str(best_model),
+                                'task': 'segment',
+                                'date': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
+                                'size': f'{stat.st_size / 1024 / 1024:.1f} MB',
+                                'accuracy': training_metrics['mAP'],
+                                'mAP': training_metrics['mAP'],
+                                'precision': training_metrics['precision'],
+                                'recall': training_metrics['recall'],
+                                'epochs': training_metrics['epochs'],
+                                'timestamp': stat.st_mtime
+                            })
+            
+            # Ordenar modelos del más reciente al más antiguo
+            models.sort(key=lambda x: x['timestamp'], reverse=True)
+            
+            # Remover el campo timestamp antes de enviar
+            for model in models:
+                del model['timestamp']
+            
+            return {'ok': True, 'models': models}
             
         except Exception as e:
             print(f"[get_trained_models] Error: {e}")
             return {'models': [], 'error': str(e)}
+    
+    def get_training_history(self, model_path: str):
+        """Obtiene el historial completo de entrenamiento desde results.csv
+        
+        Args:
+            model_path: Ruta al modelo best.pt o last.pt
+            
+        Returns:
+            Dict con epochs (lista de números) y metrics (dict con listas de valores por métrica)
+        """
+        try:
+            # Obtener el directorio de entrenamiento desde la ruta del modelo
+            model_path_obj = Path(model_path)
+            train_dir = model_path_obj.parent.parent  # weights/best.pt -> weights -> train_dir
+            
+            results_csv = train_dir / 'results.csv'
+            if not results_csv.exists():
+                return {'ok': False, 'error': 'No se encontró el archivo results.csv'}
+            
+            import csv
+            
+            # Leer el archivo CSV completo
+            with open(results_csv, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            
+            if not rows:
+                return {'ok': False, 'error': 'El archivo results.csv está vacío'}
+            
+            # Obtener todas las columnas disponibles (excluyendo 'epoch' y 'time')
+            all_columns = list(rows[0].keys())
+            metric_columns = [col for col in all_columns if col not in ['epoch', 'time']]
+            
+            # Construir estructura de datos
+            epochs = []
+            metrics = {col: [] for col in metric_columns}
+            
+            for row in rows:
+                try:
+                    epochs.append(int(row['epoch']))
+                    for col in metric_columns:
+                        value = float(row.get(col, 0))
+                        metrics[col].append(value)
+                except (ValueError, KeyError) as e:
+                    print(f"[get_training_history] Error procesando fila: {e}")
+                    continue
+            
+            return {
+                'ok': True,
+                'epochs': epochs,
+                'metrics': metrics,
+                'columns': metric_columns
+            }
+            
+        except Exception as e:
+            print(f"[get_training_history] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'ok': False, 'error': str(e)}
+    
+    def get_confusion_matrices(self, model_path: str):
+        """Obtiene las matrices de confusión generadas por YOLO
+        
+        Args:
+            model_path: Ruta al modelo best.pt o last.pt
+            
+        Returns:
+            Dict con las imágenes de las matrices en base64
+        """
+        try:
+            # Obtener el directorio de entrenamiento desde la ruta del modelo
+            model_path_obj = Path(model_path)
+            train_dir = model_path_obj.parent.parent  # weights/best.pt -> weights -> train_dir
+            
+            matrices = {}
+            
+            # Buscar matriz de confusión normal
+            confusion_matrix_path = train_dir / 'confusion_matrix.png'
+            if confusion_matrix_path.exists():
+                with open(confusion_matrix_path, 'rb') as f:
+                    matrices['confusion_matrix'] = base64.b64encode(f.read()).decode('utf-8')
+            
+            # Buscar matriz de confusión normalizada
+            confusion_matrix_normalized_path = train_dir / 'confusion_matrix_normalized.png'
+            if confusion_matrix_normalized_path.exists():
+                with open(confusion_matrix_normalized_path, 'rb') as f:
+                    matrices['confusion_matrix_normalized'] = base64.b64encode(f.read()).decode('utf-8')
+            
+            if not matrices:
+                return {
+                    'ok': False, 
+                    'error': 'No se encontraron matrices de confusión. Es posible que el modelo no haya sido entrenado con validación.'
+                }
+            
+            return {
+                'ok': True,
+                'matrices': matrices
+            }
+            
+        except Exception as e:
+            print(f"[get_confusion_matrices] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'ok': False, 'error': str(e)}
     
     def load_external_model(self):
         """Permite seleccionar y cargar un modelo externo (.pt)"""
@@ -1403,57 +1731,166 @@ class Api:
             print(f"[load_external_model] Error: {e}")
             return {'ok': False, 'error': str(e)}
     
-    def select_image_for_prediction(self):
-        """Permite seleccionar una imagen para predicción"""
+    def select_image_for_prediction(self, multiple: bool = False):
+        """Permite seleccionar una o múltiples imágenes para predicción"""
         try:
-            # Usar tkinter para seleccionar archivo
-            import tkinter as tk
-            from tkinter import filedialog
+            # Usar pywebview para seleccionar archivo(s)
+            if not webview.windows:
+                return {'ok': False, 'error': 'No hay ventanas disponibles'}
             
-            # Crear ventana raíz temporal (oculta)
-            root = tk.Tk()
-            root.withdraw()
+            win = webview.windows[0]
             
-            # Abrir diálogo de selección de archivo
-            file_path = filedialog.askopenfilename(
-                title="Seleccionar imagen para predicción",
-                filetypes=[
-                    ("Imágenes", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif"),
-                    ("JPG", "*.jpg *.jpeg"),
-                    ("PNG", "*.png"),
-                    ("Todos los archivos", "*.*")
-                ]
+            # Usar OPEN_DIALOG del módulo webview
+            open_type = getattr(webview, 'OPEN_DIALOG', 0)
+            
+            # Tipos de archivo para el diálogo
+            file_types = ('Imágenes (*.jpg;*.jpeg;*.png;*.bmp;*.tiff;*.tif)', 'Todos los archivos (*.*)')
+            
+            # Seleccionar archivo(s)
+            result = win.create_file_dialog(
+                open_type,
+                allow_multiple=multiple,
+                file_types=file_types,
+                directory='.'
             )
             
-            root.destroy()
+            if not result:
+                return {'ok': False, 'error': 'No se seleccionaron archivos'}
             
-            if not file_path:
-                return {'ok': False, 'error': 'No se seleccionó ningún archivo'}
+            # result puede ser una tupla/lista o un string individual
+            if isinstance(result, (list, tuple)):
+                file_paths = [str(p) for p in result]
+            else:
+                file_paths = [str(result)]
             
-            # Verificar que el archivo existe
-            image_path = Path(file_path)
-            if not image_path.exists():
-                return {'ok': False, 'error': 'El archivo seleccionado no existe'}
+            if multiple:
+                # Procesar múltiples imágenes
+                images_data = []
+                for file_path in file_paths:
+                    image_path = Path(file_path)
+                    if not image_path.exists():
+                        continue
+                    
+                    # Convertir imagen a base64
+                    image_base64 = None
+                    try:
+                        import base64
+                        with open(image_path, 'rb') as image_file:
+                            image_data = image_file.read()
+                            image_base64 = base64.b64encode(image_data).decode('utf-8')
+                    except Exception as e:
+                        print(f"[select_image_for_prediction] Error convirtiendo a base64: {e}")
+                        # Continuar sin base64 si hay error
+                    
+                    images_data.append({
+                        'image_path': str(image_path),
+                        'image_base64': image_base64,
+                        'name': image_path.name
+                    })
+                
+                return {
+                    'images': images_data,
+                    'total_count': len(images_data),
+                    'ok': True
+                }
+            else:
+                # Selección individual
+                image_path = Path(file_paths[0])
+                if not image_path.exists():
+                    return {'ok': False, 'error': 'El archivo seleccionado no existe'}
+                
+                # Convertir imagen a base64
+                image_base64 = None
+                try:
+                    import base64
+                    with open(image_path, 'rb') as image_file:
+                        image_data = image_file.read()
+                        image_base64 = base64.b64encode(image_data).decode('utf-8')
+                except Exception as e:
+                    print(f"[select_image_for_prediction] Error convirtiendo a base64: {e}")
+                    # Continuar sin base64 si hay error
+                
+                return {
+                    'image_path': str(image_path), 
+                    'image_base64': image_base64,
+                    'ok': True
+                }
             
-            # Convertir imagen a base64
-            image_base64 = None
-            try:
-                import base64
-                with open(image_path, 'rb') as image_file:
-                    image_data = image_file.read()
-                    image_base64 = base64.b64encode(image_data).decode('utf-8')
-            except Exception as e:
-                print(f"[select_image_for_prediction] Error convirtiendo a base64: {e}")
-                # Continuar sin base64 si hay error
+        except Exception as e:
+            print(f"[select_image_for_prediction] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'ok': False, 'error': str(e)}
+
+    def select_folder_images(self):
+        """Selecciona todas las imágenes de una carpeta"""
+        try:
+            # Usar pywebview para seleccionar carpeta
+            if not webview.windows:
+                return {'ok': False, 'error': 'No hay ventanas disponibles'}
+            
+            win = webview.windows[0]
+            
+            # Usar FOLDER_DIALOG del módulo webview
+            folder_type = getattr(webview, 'FOLDER_DIALOG', 2)
+            
+            # Seleccionar carpeta
+            result = win.create_file_dialog(
+                folder_type,
+                directory='.'
+            )
+            
+            if not result:
+                return {'ok': False, 'error': 'No se seleccionó ninguna carpeta'}
+            
+            # Obtener la ruta de la carpeta
+            folder_path = result[0] if isinstance(result, (list, tuple)) else result
+            folder = Path(str(folder_path))
+            
+            if not folder.exists():
+                return {'ok': False, 'error': 'La carpeta seleccionada no existe'}
+            
+            # Extensiones de imagen soportadas
+            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'}
+            
+            # Buscar archivos de imagen
+            images_data = []
+            for file_path in folder.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                    # Convertir imagen a base64
+                    image_base64 = None
+                    try:
+                        import base64
+                        with open(file_path, 'rb') as image_file:
+                            image_data = image_file.read()
+                            image_base64 = base64.b64encode(image_data).decode('utf-8')
+                    except Exception as e:
+                        print(f"[select_folder_images] Error convirtiendo a base64: {e}")
+                        # Continuar sin base64 si hay error
+                    
+                    images_data.append({
+                        'image_path': str(file_path),
+                        'image_base64': image_base64,
+                        'name': file_path.name
+                    })
+            
+            if not images_data:
+                return {'ok': False, 'error': 'No se encontraron imágenes en la carpeta seleccionada'}
+            
+            # Ordenar por nombre
+            images_data.sort(key=lambda x: x['name'])
             
             return {
-                'image_path': str(image_path), 
-                'image_base64': image_base64,
+                'images': images_data,
+                'total_count': len(images_data),
+                'folder_path': str(folder),
                 'ok': True
             }
             
         except Exception as e:
-            print(f"[select_image_for_prediction] Error: {e}")
+            print(f"[select_folder_images] Error: {e}")
+            import traceback
+            traceback.print_exc()
             return {'ok': False, 'error': str(e)}
     
     def predict_image(self, model_path: str, image_path: str, confidence: float = 0.5, iou: float = 0.4, max_det: int = 100):
@@ -1554,39 +1991,59 @@ class Api:
                     
                     print(f"[predict_image] Completado. {len(predictions)} detecciones encontradas")
                     
-                    # Generar imagen con predicciones
+                    # Generar imagen con predicciones y guardar en carpeta correcta
                     prediction_image_base64 = None
+                    original_image_base64 = None
                     try:
                         print(f"[predict_image] Generando imagen resultado...")
-                        import tempfile
+                        import cv2
                         import base64
+                        from datetime import datetime
                         
-                        # Guardar imagen resultado en archivo temporal
-                        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
-                            temp_path = tmp_file.name
+                        # Crear carpeta predicts basada en la ruta del modelo
+                        model_dir = Path(model_path).parent.parent  # Subir dos niveles desde weights
+                        predicts_dir = model_dir / "predicts"
+                        predicts_dir.mkdir(exist_ok=True)
+                        
+                        # Generar nombres únicos para las imágenes
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        image_name = Path(image_path).stem
+                        
+                        # Paths para guardar las imágenes
+                        original_save_path = predicts_dir / f"{image_name}_{timestamp}_original.jpg"
+                        prediction_save_path = predicts_dir / f"{image_name}_{timestamp}_prediction.jpg"
+                        
+                        print(f"[predict_image] Guardando en: {predicts_dir}")
+                        
+                        # Cargar imagen original y convertir a base64
+                        original_img = cv2.imread(image_path)
+                        if original_img is not None:
+                            # Guardar copia de imagen original
+                            cv2.imwrite(str(original_save_path), original_img)
+                            
+                            # Convertir imagen original a base64
+                            _, buffer = cv2.imencode('.jpg', original_img)
+                            original_image_base64 = base64.b64encode(buffer).decode('utf-8')
                         
                         # Usar el método plot de ultralytics para generar imagen con detecciones
                         if results and len(results) > 0:
                             result_img = results[0].plot()  # Genera imagen con cajas y etiquetas
                             
-                            # Guardar la imagen
-                            import cv2
-                            cv2.imwrite(temp_path, result_img)
+                            # Guardar la imagen con predicciones
+                            cv2.imwrite(str(prediction_save_path), result_img)
                             
-                            # Convertir a base64
-                            with open(temp_path, 'rb') as img_file:
-                                img_data = img_file.read()
-                                prediction_image_base64 = base64.b64encode(img_data).decode('utf-8')
+                            # Convertir imagen de predicción a base64
+                            _, buffer = cv2.imencode('.jpg', result_img)
+                            prediction_image_base64 = base64.b64encode(buffer).decode('utf-8')
                             
-                            # Limpiar archivo temporal
-                            import os
-                            try:
-                                os.unlink(temp_path)
-                            except:
-                                pass
+                            print(f"[predict_image] Imágenes guardadas exitosamente")
+                            print(f"[predict_image] Original: {original_save_path}")
+                            print(f"[predict_image] Predicción: {prediction_save_path}")
                         
                     except Exception as img_error:
                         print(f"[predict_image] Error generando imagen resultado: {img_error}")
+                        import traceback
+                        traceback.print_exc()
                         # Continuar sin imagen si hay error
                     
                     result_container['result'] = {
@@ -1595,6 +2052,7 @@ class Api:
                         'image_path': image_path,
                         'model_path': model_path,
                         'total_detections': len(predictions),
+                        'original_image_base64': original_image_base64,
                         'prediction_image_base64': prediction_image_base64
                     }
                     result_container['completed'] = True
@@ -1630,3 +2088,284 @@ class Api:
             import traceback
             traceback.print_exc()
             return {'ok': False, 'error': f'Error en predicción: {str(e)}'}
+
+    def predict_multiple_images(self, model_path: str, image_paths: List[str], confidence: float = 0.5, iou: float = 0.4, max_det: int = 100):
+        """Realiza predicción en múltiples imágenes usando un modelo YOLO"""
+        try:
+            print(f"[predict_multiple_images] Iniciando predicción de {len(image_paths)} imágenes")
+            print(f"[predict_multiple_images] Modelo: {model_path}")
+            
+            # Verificar que el modelo existe
+            model_file = Path(model_path)
+            if not model_file.exists():
+                return {'ok': False, 'error': f'Modelo no encontrado: {model_path}'}
+            
+            # Verificar imágenes
+            valid_images = []
+            for img_path in image_paths:
+                if Path(img_path).exists():
+                    valid_images.append(img_path)
+                else:
+                    print(f"[predict_multiple_images] Imagen no encontrada: {img_path}")
+            
+            if not valid_images:
+                return {'ok': False, 'error': 'No se encontraron imágenes válidas'}
+            
+            # Variable para almacenar los resultados
+            results_container = {'results': [], 'error': None, 'completed': False, 'current_index': 0}
+            
+            def run_batch_prediction():
+                try:
+                    # Importar YOLO
+                    from ultralytics import YOLO
+                    
+                    # Cargar el modelo una sola vez
+                    print(f"[predict_multiple_images] Cargando modelo...")
+                    model = YOLO(model_path)
+                    
+                    # Crear carpeta predicts
+                    model_dir = Path(model_path).parent.parent
+                    predicts_dir = model_dir / "predicts"
+                    predicts_dir.mkdir(exist_ok=True)
+                    
+                    results = []
+                    
+                    for idx, image_path in enumerate(valid_images):
+                        try:
+                            print(f"[predict_multiple_images] Procesando imagen {idx + 1}/{len(valid_images)}: {Path(image_path).name}")
+                            results_container['current_index'] = idx
+                            
+                            # Realizar predicción
+                            pred_results = model.predict(
+                                source=image_path,
+                                conf=confidence,
+                                iou=iou,
+                                max_det=max_det,
+                                save=False,
+                                show=False,
+                                verbose=False,
+                                stream=False
+                            )
+                            
+                            # Procesar resultados para esta imagen
+                            predictions = []
+                            original_image_base64 = None
+                            prediction_image_base64 = None
+                            
+                            if pred_results and len(pred_results) > 0:
+                                result = pred_results[0]
+                                
+                                # Obtener nombres de clases
+                                class_names = model.names if hasattr(model, 'names') else {}
+                                
+                                # Procesar detecciones
+                                if hasattr(result, 'boxes') and result.boxes is not None:
+                                    boxes = result.boxes
+                                    num_boxes = len(boxes) if boxes is not None else 0
+                                    
+                                    for i in range(num_boxes):
+                                        try:
+                                            box = boxes.xyxy[i].cpu().numpy()
+                                            conf = float(boxes.conf[i].cpu().item())
+                                            cls = int(boxes.cls[i].cpu().item())
+                                            
+                                            class_name = class_names.get(cls, f'clase_{cls}')
+                                            
+                                            predictions.append({
+                                                'class': class_name,
+                                                'class_id': cls,
+                                                'confidence': conf,
+                                                'bbox': [float(box[0]), float(box[1]), float(box[2]), float(box[3])],
+                                                'bbox_string': f"{int(box[0])},{int(box[1])},{int(box[2])},{int(box[3])}"
+                                            })
+                                        except Exception as box_error:
+                                            print(f"[predict_multiple_images] Error procesando caja {i}: {box_error}")
+                                            continue
+                                
+                                # Procesar máscaras si es segmentación
+                                if hasattr(result, 'masks') and result.masks is not None:
+                                    try:
+                                        masks = result.masks
+                                        for i, mask in enumerate(masks.xy):
+                                            if i < len(predictions):
+                                                mask_points = mask.tolist() if hasattr(mask, 'tolist') else []
+                                                predictions[i]['mask'] = mask_points
+                                    except Exception as mask_error:
+                                        print(f"[predict_multiple_images] Error procesando máscaras: {mask_error}")
+                            
+                            # Generar imágenes
+                            try:
+                                import cv2
+                                import base64
+                                from datetime import datetime
+                                
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                image_name = Path(image_path).stem
+                                
+                                original_save_path = predicts_dir / f"{image_name}_{timestamp}_original.jpg"
+                                prediction_save_path = predicts_dir / f"{image_name}_{timestamp}_prediction.jpg"
+                                
+                                # Cargar imagen original
+                                original_img = cv2.imread(image_path)
+                                if original_img is not None:
+                                    cv2.imwrite(str(original_save_path), original_img)
+                                    _, buffer = cv2.imencode('.jpg', original_img)
+                                    original_image_base64 = base64.b64encode(buffer).decode('utf-8')
+                                
+                                # Generar imagen con predicciones
+                                if pred_results and len(pred_results) > 0:
+                                    result_img = pred_results[0].plot()
+                                    cv2.imwrite(str(prediction_save_path), result_img)
+                                    _, buffer = cv2.imencode('.jpg', result_img)
+                                    prediction_image_base64 = base64.b64encode(buffer).decode('utf-8')
+                                
+                            except Exception as img_error:
+                                print(f"[predict_multiple_images] Error generando imágenes para {image_path}: {img_error}")
+                            
+                            # Agregar resultado
+                            results.append({
+                                'image_path': image_path,
+                                'image_name': Path(image_path).name,
+                                'predictions': predictions,
+                                'total_detections': len(predictions),
+                                'original_image_base64': original_image_base64,
+                                'prediction_image_base64': prediction_image_base64,
+                                'index': idx
+                            })
+                            
+                        except Exception as img_error:
+                            print(f"[predict_multiple_images] Error procesando imagen {image_path}: {img_error}")
+                            # Agregar resultado con error
+                            results.append({
+                                'image_path': image_path,
+                                'image_name': Path(image_path).name,
+                                'predictions': [],
+                                'total_detections': 0,
+                                'original_image_base64': None,
+                                'prediction_image_base64': None,
+                                'index': idx,
+                                'error': str(img_error)
+                            })
+                            continue
+                    
+                    results_container['results'] = results
+                    results_container['completed'] = True
+                    print(f"[predict_multiple_images] Completado. Procesadas {len(results)} imágenes")
+                    
+                except Exception as e:
+                    print(f"[predict_multiple_images] Error en thread: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    results_container['error'] = str(e)
+                    results_container['completed'] = True
+            
+            # Ejecutar predicción en un thread separado
+            import threading
+            thread = threading.Thread(target=run_batch_prediction)
+            thread.daemon = True
+            thread.start()
+            
+            # Esperar hasta 300 segundos (5 minutos) para múltiples imágenes
+            timeout = 300
+            start_time = time.time()
+            while not results_container['completed'] and (time.time() - start_time) < timeout:
+                time.sleep(0.1)
+            
+            if not results_container['completed']:
+                return {'ok': False, 'error': f'Predicción timeout ({timeout}s). El proceso puede ser muy lento.'}
+            
+            if results_container['error']:
+                return {'ok': False, 'error': f'Error en predicción: {results_container["error"]}'}
+            
+            return {
+                'ok': True,
+                'results': results_container['results'],
+                'total_images': len(results_container['results']),
+                'model_path': model_path
+            }
+            
+        except Exception as e:
+            print(f"[predict_multiple_images] Error general: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'ok': False, 'error': f'Error en predicción múltiple: {str(e)}'}
+
+    # --- Gestión de proyectos recientes ---
+    def _get_recents_file(self) -> Path:
+        """Obtiene la ruta del archivo de proyectos recientes"""
+        # Guardar en el directorio del usuario
+        home = Path.home()
+        app_data = home / '.yolo_annotator'
+        ensure_dir(app_data)
+        return app_data / 'recent_projects.json'
+
+    def get_recent_projects(self) -> Dict[str, Any]:
+        """Obtiene la lista de proyectos recientes"""
+        try:
+            recents_file = self._get_recents_file()
+            if not recents_file.exists():
+                return {'ok': True, 'projects': []}
+            
+            with open(recents_file, 'r', encoding='utf-8') as f:
+                projects = json.load(f)
+            
+            # Validar que los proyectos todavía existen
+            valid_projects = []
+            for project in projects:
+                config_path = Path(project.get('configPath', ''))
+                if config_path.exists():
+                    valid_projects.append(project)
+            
+            # Si hubo cambios, guardar la lista actualizada
+            if len(valid_projects) != len(projects):
+                with open(recents_file, 'w', encoding='utf-8') as f:
+                    json.dump(valid_projects, f, ensure_ascii=False, indent=2)
+            
+            return {'ok': True, 'projects': valid_projects}
+        except Exception as e:
+            print(f"[get_recent_projects] Error: {e}")
+            return {'ok': False, 'error': str(e), 'projects': []}
+
+    def add_recent_project(self, name: str, config_path: str) -> Dict[str, Any]:
+        """Agrega un proyecto a la lista de recientes"""
+        try:
+            recents_file = self._get_recents_file()
+            
+            # Cargar proyectos existentes
+            projects = []
+            if recents_file.exists():
+                with open(recents_file, 'r', encoding='utf-8') as f:
+                    projects = json.load(f)
+            
+            # Eliminar el proyecto si ya existe (para moverlo al inicio)
+            projects = [p for p in projects if p.get('configPath') != config_path]
+            
+            # Agregar al inicio
+            projects.insert(0, {
+                'name': name,
+                'configPath': config_path,
+                'openedAt': int(time.time() * 1000)  # timestamp en milisegundos
+            })
+            
+            # Mantener solo los últimos 10
+            projects = projects[:10]
+            
+            # Guardar
+            with open(recents_file, 'w', encoding='utf-8') as f:
+                json.dump(projects, f, ensure_ascii=False, indent=2)
+            
+            return {'ok': True, 'projects': projects}
+        except Exception as e:
+            print(f"[add_recent_project] Error: {e}")
+            return {'ok': False, 'error': str(e)}
+
+    def clear_recent_projects(self) -> Dict[str, Any]:
+        """Limpia la lista de proyectos recientes"""
+        try:
+            recents_file = self._get_recents_file()
+            if recents_file.exists():
+                recents_file.unlink()
+            return {'ok': True}
+        except Exception as e:
+            print(f"[clear_recent_projects] Error: {e}")
+            return {'ok': False, 'error': str(e)}

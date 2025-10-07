@@ -9,6 +9,7 @@ import { Anotacion } from './pages/anotacion/anotacion';
 import { Menubar } from './components/menubar/menubar';
 import { MenuService } from './services/menu.service';
 import { RecentProjectsService } from './services/recent-projects.service';
+import { AnnotationService } from './services/annotation.service';
 import { Entrenamiento } from "./pages/entrenamiento/entrenamiento";
 import { Prediccion } from "./pages/prediccion/prediccion";
 import { Resultado } from './pages/resultado/resultado';
@@ -33,7 +34,13 @@ export class App implements OnInit, OnDestroy {
 
   private disposers: (() => void)[] = [];
 
-  constructor(private pythonApi: PythonApiService, private project: ProjectService, private menu: MenuService, private recents: RecentProjectsService) {
+  constructor(
+    private pythonApi: PythonApiService,
+    private project: ProjectService,
+    private menu: MenuService,
+    private recents: RecentProjectsService,
+    private annotationService: AnnotationService
+  ) {
     // Sin effect() explícito para no mantener logs; simple suscripción manual
     const sync = () => this.isConnected.set(this.pythonApi.apiReady());
     // Poll ligero hasta que se conecte, luego detiene
@@ -45,13 +52,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    // Suscribir acción de menú "abrir-proyecto"
+    // Suscribir accción de menú "abrir-proyecto"
     const offOpen = this.menu.on('abrir-proyecto', () => this.openProjectFromMenu());
     const offRecent = this.menu.on('abrir-reciente', (p: any) => this.openRecent(p));
     const offClearRec = this.menu.on('limpiar-recientes', () => this.recents.clear());
+    const offClose = this.menu.on('cerrar-proyecto', () => this.closeProjectFromMenu());
     const offSalir = this.menu.on('salir', () => this.exitApp());
     const offCargar = this.menu.on('cargar-imagenes', () => this.loadImagesFromMenu());
-    this.disposers.push(offOpen, offRecent, offClearRec, offSalir);
+    this.disposers.push(offOpen, offRecent, offClearRec, offClose, offSalir, offCargar);
   }
 
   ngOnDestroy() {
@@ -80,7 +88,7 @@ export class App implements OnInit, OnDestroy {
         this.projectName.set(this.project.project()?.name || 'Proyecto');
         // registrar en recientes
         const cfgPath = sel.path.endsWith('project_config.json') ? sel.path : (sel.path + '/project_config.json');
-        this.recents.touch(this.project.project()?.name || 'Proyecto', cfgPath);
+        await this.recents.touch(this.project.project()?.name || 'Proyecto', cfgPath);
       } else {
         alert('No se pudo abrir el proyecto.');
       }
@@ -115,12 +123,45 @@ export class App implements OnInit, OnDestroy {
       const res = await this.project.open(payload.configPath);
       if (res?.ok) {
         this.projectName.set(this.project.project()?.name || 'Proyecto');
-        this.recents.touch(this.project.project()?.name || 'Proyecto', payload.configPath);
+        await this.recents.touch(this.project.project()?.name || 'Proyecto', payload.configPath);
       } else {
         alert('No se pudo abrir el proyecto reciente.');
       }
     } catch (e: any) {
       alert('Error abriendo reciente: ' + (e?.message || e));
+    }
+  }
+
+  private async closeProjectFromMenu() {
+    if (!this.project.isOpen()) {
+      return; // No hay proyecto abierto
+    }
+
+    try {
+      // Limpiar servicio de anotaciones (imágenes cargadas, anotaciones, cache)
+      this.annotationService.clear();
+      await this.annotationService.clearTemporaryFiles();
+
+      // Cerrar proyecto en el backend y limpiar estado del servicio
+      await this.project.close();
+
+      // Restaurar nombre del proyecto a estado inicial
+      this.projectName.set('Sin proyecto');
+
+      // Limpiar estados de carga de imágenes
+      this.imagesLoading.set(false);
+      this.imagesCopied.set(0);
+      this.imagesTotal.set(0);
+      this.imagesElapsed.set(0);
+
+      // Emitir evento personalizado para notificar a los componentes
+      const event = new CustomEvent('project-closed');
+      document.dispatchEvent(event);
+
+      console.log('✅ Proyecto cerrado correctamente');
+    } catch (error) {
+      console.error('❌ Error cerrando proyecto:', error);
+      alert('Error al cerrar el proyecto: ' + (error instanceof Error ? error.message : String(error)));
     }
   }
 
