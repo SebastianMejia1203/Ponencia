@@ -141,7 +141,7 @@ export class App implements OnInit, OnDestroy {
       data.classes,
       data.task,
       data.meta
-    ).then(res => { 
+    ).then(res => {
       if (res?.ok) {
         this.projectName.set(data.name);
         // Registrar proyecto nuevo en recientes
