@@ -1,4 +1,4 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, viewChild } from '@angular/core';
 import { provideIcons } from '@ng-icons/core';
 import {
   lucideFilePlus, lucideFolderOpen, lucideSave, lucideImage, lucideSettings, lucideFileOutput,
@@ -12,11 +12,13 @@ import { HlmMenu, HlmSubMenu, HlmMenuItem, HlmMenuItemSubIndicator, HlmMenuLabel
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { NgIf, NgFor } from '@angular/common';
 import { MenuService } from '../../services/menu.service';
+import { ProjectService } from '../../services/project.service';
 import { RecentProjectsService } from '../../services/recent-projects.service';
+import { AboutDialogComponent } from '../about-dialog/about-dialog.component';
 
 @Component({
   selector: 'app-menubar',
-  imports: [BrnMenuTrigger, HlmMenu, HlmSubMenu, HlmMenuItem, HlmMenuItemSubIndicator, HlmMenuLabel, HlmMenuShortcut, HlmMenuSeparator, HlmButtonImports],
+  imports: [BrnMenuTrigger, HlmMenu, HlmSubMenu, HlmMenuItem, HlmMenuItemSubIndicator, HlmMenuLabel, HlmMenuShortcut, HlmMenuSeparator, HlmButtonImports, AboutDialogComponent],
   providers: [provideIcons({
     lucideFilePlus, lucideFolderOpen, lucideSave, lucideImage, lucideSettings, lucideFileOutput,
     lucideUndo, lucideRedo, lucideScissors, lucideCopy, lucideClipboardPaste, lucideSearch, lucideZoomIn, lucideZoomOut,
@@ -29,11 +31,18 @@ import { RecentProjectsService } from '../../services/recent-projects.service';
 })
 export class Menubar {
   private menu = inject(MenuService);
+  private projectSvc = inject(ProjectService);
   private recentsSvc = inject(RecentProjectsService);
 
   readonly recentProjects = computed(() => this.recentsSvc.items());
+  readonly aboutDialogRef = viewChild(AboutDialogComponent);
+  readonly hasProject = computed(() => this.projectSvc.isOpen());
 
   dispatch(action: string, payload?: any) { this.menu.dispatch(action as any, payload); }
   openRecent(p: { configPath: string }) { this.dispatch('abrir-reciente', p); }
   clearRecents() { this.dispatch('limpiar-recientes'); }
+
+  openAboutDialog() {
+    this.aboutDialogRef()?.open();
+  }
 }

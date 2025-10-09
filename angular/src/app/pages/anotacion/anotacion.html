@@ -183,7 +183,11 @@
 
       <!-- Mouse Coordinates -->
       <div class="absolute bottom-4 left-4 bg-white px-2 py-1 rounded border text-sm">
-        Imagen: {{mouseImageX}}, {{mouseImageY}}
+        @if (mouseImageX >= 0 && mouseImageY >= 0) {
+          <span>Imagen: {{mouseImageX}}, {{mouseImageY}}</span>
+        } @else {
+          <span class="text-gray-400">Fuera de imagen</span>
+        }
       </div>
 
       <!-- Mode Indicator -->

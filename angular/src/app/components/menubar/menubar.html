@@ -50,12 +50,12 @@
 	<button brnMenuTrigger hlmBtn variant="ghost" size="sm" [brnMenuTriggerFor]="proyecto" class="px-2 rounded-none">Proyecto</button>
 	<ng-template #proyecto>
 		<hlm-menu class="w-56">
-			<button hlmMenuItem (click)="dispatch('guardar-proyecto')">Guardar Proyecto <hlm-menu-shortcut>Ctrl+S</hlm-menu-shortcut></button>
-			<button hlmMenuItem (click)="dispatch('cerrar-proyecto')">Cerrar Proyecto <hlm-menu-shortcut>Ctrl+W</hlm-menu-shortcut></button>
+			<button hlmMenuItem (click)="dispatch('guardar-proyecto')" [disabled]="!hasProject()">Guardar Proyecto <hlm-menu-shortcut>Ctrl+S</hlm-menu-shortcut></button>
+			<button hlmMenuItem (click)="dispatch('cerrar-proyecto')" [disabled]="!hasProject()">Cerrar Proyecto <hlm-menu-shortcut>Ctrl+W</hlm-menu-shortcut></button>
 			<hlm-menu-separator />
-			<button hlmMenuItem (click)="dispatch('cargar-imagenes')">Cargar Imágenes <hlm-menu-shortcut>Ctrl+I</hlm-menu-shortcut></button>
-			<button hlmMenuItem (click)="dispatch('gestionar-imagenes')">Gestionar Imágenes</button>
-			<button hlmMenuItem (click)="dispatch('gestionar-clases')">Gestionar Clases <hlm-menu-shortcut>Ctrl+G</hlm-menu-shortcut></button>
+			<button hlmMenuItem (click)="dispatch('cargar-imagenes')" [disabled]="!hasProject()">Cargar Imágenes <hlm-menu-shortcut>Ctrl+I</hlm-menu-shortcut></button>
+			<button hlmMenuItem (click)="dispatch('gestionar-imagenes')" [disabled]="!hasProject()">Gestionar Imágenes</button>
+			<button hlmMenuItem (click)="dispatch('gestionar-clases')" [disabled]="!hasProject()">Gestionar Clases <hlm-menu-shortcut>Ctrl+G</hlm-menu-shortcut></button>
 			<!-- <hlm-menu-separator />
 			<button hlmMenuItem (click)="dispatch('exportar-yolo')">Exportar a YOLO <hlm-menu-shortcut>Ctrl+E</hlm-menu-shortcut></button> -->
 		</hlm-menu>
@@ -102,15 +102,8 @@
 		<ng-template #ayuda>
 			<hlm-menu class="w-56">
 				<button hlmMenuItem (click)="dispatch('documentacion')">Manual de Usuario <hlm-menu-shortcut>F1</hlm-menu-shortcut></button>
-				<!-- <button hlmMenuItem [brnMenuTriggerFor]="tutoriales"><span>Tutoriales</span><hlm-menu-item-sub-indicator /></button>
-				<button hlmMenuItem [brnMenuTriggerFor]="ejemplos"><span>Ejemplos</span><hlm-menu-item-sub-indicator /></button> -->
 				<hlm-menu-separator />
-				<!-- <button hlmMenuItem (click)="dispatch('soporte-tecnico')">Soporte Técnico</button> -->
-				<button hlmMenuItem (click)="dispatch('reportar-error')">Reportar Error</button>
-				<button hlmMenuItem (click)="dispatch('sugerir-mejora')">Sugerir Mejora</button>
-				<hlm-menu-separator />
-				<!-- <button hlmMenuItem (click)="dispatch('buscar-actualizaciones')">Buscar Actualizaciones</button> -->
-				<button hlmMenuItem (click)="dispatch('acerca-de')">Acerca de</button>
+				<button hlmMenuItem (click)="openAboutDialog()">Acerca de</button>
 			</hlm-menu>
 		</ng-template>
 		<ng-template #tutoriales>
@@ -127,3 +120,6 @@
 			</hlm-sub-menu>
 		</ng-template>
 </nav>
+
+<!-- Diálogo Acerca de -->
+<app-about-dialog />

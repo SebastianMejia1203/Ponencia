@@ -42,6 +42,12 @@
 <!-- Diálogo Nuevo Proyecto (siempre presente, se abre por acción de menú) -->
 <app-create-project-dialog (createProject)="handleCreateProject($event)"></app-create-project-dialog>
 
+<!-- Diálogo Gestionar Clases (abre con Ctrl+G o desde menú) -->
+<app-manage-classes-dialog></app-manage-classes-dialog>
+
+<!-- Diálogo Gestionar Imágenes (abre desde menú) -->
+<app-manage-images-dialog></app-manage-images-dialog>
+
 <!-- Overlay progreso carga imágenes -->
 <div class="images-loading-overlay" *ngIf="imagesLoading()">
   <div class="images-loading-box">

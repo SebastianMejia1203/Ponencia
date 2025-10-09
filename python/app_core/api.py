@@ -416,10 +416,16 @@ class Api:
             def count_images(path: Path) -> int:
                 if not path.exists():
                     return 0
-                count = 0
+                # Usar un set para evitar contar archivos duplicados con diferentes extensiones
+                image_files = set()
                 for ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']:
-                    count += len(list(path.glob(f'*{ext}'))) + len(list(path.glob(f'*{ext.upper()}')))
-                return count
+                    # Buscar archivos con extensión en minúsculas y mayúsculas
+                    # pero usar el nombre completo en minúsculas para evitar duplicados
+                    for file in path.glob(f'*{ext}'):
+                        image_files.add(file.name.lower())
+                    for file in path.glob(f'*{ext.upper()}'):
+                        image_files.add(file.name.lower())
+                return len(image_files)
             
             train_images = count_images(train_path)
             val_images = count_images(val_path)
@@ -1048,8 +1054,9 @@ class Api:
         from datetime import datetime
         config = {
             'name': name,
-            'root': str(p),
-            'baseDir': str(base_dir),
+            # NO guardar rutas absolutas - se calculan dinámicamente al abrir el proyecto
+            # 'root': str(p),  # ❌ REMOVIDO - ruta absoluta
+            # 'baseDir': str(base_dir),  # ❌ REMOVIDO - ruta absoluta
             'folderName': p.name,
             'createdAt': datetime.utcnow().isoformat(),
             'classes': classes,
@@ -1059,7 +1066,7 @@ class Api:
             'model': yolo_model,
             'segmentationType': segmentation_type,
             'imageSize': image_size,
-            'dataYamlPath': str(p / 'data.yaml'),
+            # 'dataYamlPath': str(p / 'data.yaml'),  # ❌ REMOVIDO - siempre es relativo: ./data.yaml
             'splits': {
                 'train': train_split,
                 'val': val_split,
@@ -1103,18 +1110,47 @@ class Api:
         return {'ok': True, 'project': config, 'images': [img.name for img in self.images]}
 
     def open_project(self, path: str):
+        """Abre un proyecto existente.
+        
+        Las rutas absolutas se calculan dinámicamente basándose en la ubicación
+        del project_config.json, lo que permite mover proyectos entre carpetas.
+        
+        Args:
+            path: Ruta a la carpeta del proyecto o al archivo project_config.json
+            
+        Returns:
+            dict: {'ok': True, 'project': config, 'images': [...]}
+        """
         p = Path(path).expanduser().resolve()
         if p.is_dir():
             cfg_path = p / PROJECT_STATE_FILE
         else:
             cfg_path = p
             p = p.parent
+        
         if not cfg_path.exists():
             raise FileNotFoundError('No se encontró project_config.json')
+        
         with open(cfg_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
+        
+        # Calcular rutas dinámicamente basadas en la ubicación actual del proyecto
+        config['root'] = str(p)  # Ruta absoluta actual del proyecto
+        config['baseDir'] = str(p.parent)  # Ruta absoluta del directorio padre
+        config['dataYamlPath'] = str(p / 'data.yaml')  # Ruta absoluta al data.yaml
+        
+        # Verificar que data.yaml existe
+        data_yaml_path = p / 'data.yaml'
+        if not data_yaml_path.exists():
+            print(f'⚠️ [open_project] Advertencia: data.yaml no encontrado en {data_yaml_path}')
+        
         self.current_project = p
         self._load_images()
+        
+        print(f'✅ [open_project] Proyecto abierto: {config["name"]}')
+        print(f'   📁 Ubicación: {p}')
+        print(f'   📊 Imágenes: {len(self.images)}')
+        
         return {'ok': True, 'project': config, 'images': [img.name for img in self.images]}
 
     def close_project(self):
@@ -1122,6 +1158,135 @@ class Api:
         self.images = []
         self.annotations_index = {}
         return {'ok': True}
+
+    def save_project(self, classes=None):
+        """Guarda el estado actual del proyecto actualizando project_config.json y data.yaml
+        
+        Args:
+            classes: Lista opcional de clases a guardar. Si se proporciona, se actualizará data.yaml
+        """
+        try:
+            self._ensure_project_open()
+            p = self._project_dir()
+            
+            # Leer configuración actual
+            cfg_path = p / PROJECT_STATE_FILE
+            if not cfg_path.exists():
+                return {'ok': False, 'error': 'No se encontró project_config.json'}
+            
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            # Determinar las clases a usar
+            if classes is not None:
+                # Si se proporcionan clases, usarlas directamente
+                current_classes = classes if isinstance(classes, list) else []
+                print(f"[save_project] Clases recibidas del frontend: {current_classes}")
+            else:
+                # Obtener clases desde data.yaml (es la fuente de verdad para las clases)
+                data_yaml_path = p / 'data.yaml'
+                current_classes = config.get('classes', [])
+                
+                if data_yaml_path.exists():
+                    try:
+                        import yaml
+                        with open(data_yaml_path, 'r', encoding='utf-8') as f:
+                            data_yaml = yaml.safe_load(f)
+                        
+                        if data_yaml and 'names' in data_yaml:
+                            # Convertir dict {0: 'clase1', 1: 'clase2'} a lista ['clase1', 'clase2']
+                            if isinstance(data_yaml['names'], dict):
+                                max_idx = max(data_yaml['names'].keys()) if data_yaml['names'] else -1
+                                current_classes = [data_yaml['names'].get(i, f'clase_{i}') for i in range(max_idx + 1)]
+                            elif isinstance(data_yaml['names'], list):
+                                current_classes = data_yaml['names']
+                    except Exception as e:
+                        print(f"[save_project] Error leyendo data.yaml: {e}")
+            
+            # Actualizar clases en config
+            config['classes'] = current_classes
+            
+            # Actualizar timestamp de última modificación
+            from datetime import datetime
+            config['lastModified'] = datetime.utcnow().isoformat()
+            
+            # Contar imágenes actuales por split
+            train_images = list((p / 'dataset' / 'train' / 'images').glob('*'))
+            val_images = list((p / 'dataset' / 'val' / 'images').glob('*'))
+            test_images = list((p / 'dataset' / 'test' / 'images').glob('*'))
+            
+            # Filtrar solo archivos de imagen
+            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff'}
+            train_images = [f for f in train_images if f.suffix.lower() in image_extensions]
+            val_images = [f for f in val_images if f.suffix.lower() in image_extensions]
+            test_images = [f for f in test_images if f.suffix.lower() in image_extensions]
+            
+            # Actualizar estadísticas
+            config['stats'] = {
+                'totalImages': len(train_images) + len(val_images) + len(test_images),
+                'trainImages': len(train_images),
+                'valImages': len(val_images),
+                'testImages': len(test_images),
+                'classes': len(current_classes)
+            }
+            
+            # Crear una copia del config para guardar (sin rutas absolutas)
+            config_to_save = config.copy()
+            # Remover campos con rutas absolutas antes de guardar
+            config_to_save.pop('root', None)
+            config_to_save.pop('baseDir', None)
+            config_to_save.pop('dataYamlPath', None)
+            
+            # Guardar project_config.json actualizado (sin rutas absolutas)
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                json.dump(config_to_save, f, ensure_ascii=False, indent=2)
+            
+            # Agregar rutas dinámicas para la respuesta (solo en memoria)
+            config['root'] = str(p)
+            config['baseDir'] = str(p.parent)
+            config['dataYamlPath'] = str(p / 'data.yaml')
+            
+            # Actualizar data.yaml con las clases actuales
+            data_yaml_path = p / 'data.yaml'
+            dataset_yaml = {
+                'path': '.',
+                'train': 'dataset/train/images',
+                'val': 'dataset/val/images',
+                'test': 'dataset/test/images',
+                'names': {i: cls for i, cls in enumerate(current_classes)}
+            }
+            
+            try:
+                import yaml
+                with open(data_yaml_path, 'w', encoding='utf-8') as f:
+                    yaml.safe_dump(dataset_yaml, f, allow_unicode=True, sort_keys=False)
+            except Exception:
+                # Fallback manual
+                with open(data_yaml_path, 'w', encoding='utf-8') as f:
+                    f.write('path: .\n')
+                    f.write('train: dataset/train/images\n')
+                    f.write('val: dataset/val/images\n')
+                    f.write('test: dataset/test/images\n')
+                    f.write('names:\n')
+                    for i, cls in enumerate(current_classes):
+                        f.write(f"  {i}: {cls}\n")
+            
+            print(f'[save_project] ✅ Proyecto guardado correctamente: {config["name"]}')
+            print(f'[save_project]    - Clases: {len(current_classes)}')
+            print(f'[save_project]    - Imágenes: {config["stats"]["totalImages"]} (train: {len(train_images)}, val: {len(val_images)}, test: {len(test_images)})')
+            
+            return {
+                'ok': True,
+                'project': config,
+                'stats': config['stats']
+            }
+            
+        except Exception as e:
+            error_msg = f'Error guardando proyecto: {str(e)}'
+            print(f'[save_project] ❌ {error_msg}')
+            import traceback
+            traceback.print_exc()
+            return {'ok': False, 'error': error_msg}
 
     def list_images(self):
         self._ensure_project_open()
@@ -1268,6 +1433,148 @@ class Api:
         elapsed = time.time() - started
         # Nota: el evento JS custom lo dispararemos desde frontend tras recibir respuesta.
         return {'ok': True, 'copied': copied, 'images': [img.name for img in self.images], 'elapsed': elapsed}
+
+    def get_image_stats(self, filename: str):
+        """Obtiene información detallada de una imagen específica.
+        
+        Returns: {'ok': True, 'stats': {...}} o {'ok': False, 'error': '...'}
+        """
+        try:
+            self._ensure_project_open()
+            
+            # Buscar la imagen en el listado
+            match = next((img for img in self.images if img.name == filename), None)
+            if not match:
+                return {'ok': False, 'error': f'Imagen {filename} no encontrada'}
+            
+            # Obtener información del archivo
+            file_stats = match.stat()
+            
+            # Verificar si tiene anotaciones
+            ann_path = self.annotations_index.get(filename)
+            has_annotations = ann_path and ann_path.exists()
+            
+            # Intentar obtener dimensiones de la imagen
+            dimensions = None
+            try:
+                from PIL import Image
+                with Image.open(match) as img:
+                    dimensions = {'width': img.width, 'height': img.height}
+            except Exception as e:
+                print(f'[get_image_stats] No se pudieron obtener dimensiones de {filename}: {e}')
+            
+            return {
+                'ok': True,
+                'stats': {
+                    'filename': filename,
+                    'path': str(match),
+                    'size': file_stats.st_size,
+                    'dimensions': dimensions,
+                    'hasAnnotations': has_annotations,
+                    'modified': file_stats.st_mtime
+                }
+            }
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def delete_image(self, filename: str):
+        """Elimina una imagen y sus anotaciones asociadas del proyecto.
+        
+        Elimina tanto el archivo de imagen como los archivos de anotaciones en formato:
+        - .json (formato interno de la aplicación)
+        - .txt (formato YOLO)
+        
+        Returns: {'ok': True, 'images': [...]} o {'ok': False, 'error': '...'}
+        """
+        try:
+            self._ensure_project_open()
+            
+            # Buscar la imagen
+            match = next((img for img in self.images if img.name == filename), None)
+            if not match:
+                return {'ok': False, 'error': f'Imagen {filename} no encontrada'}
+            
+            # Eliminar archivo de imagen
+            if match.exists():
+                match.unlink()
+                print(f'[delete_image] Imagen eliminada: {match}')
+            
+            # Eliminar archivo de anotaciones JSON si existe
+            ann_path = self.annotations_index.get(filename)
+            if ann_path and ann_path.exists():
+                ann_path.unlink()
+                print(f'[delete_image] Anotaciones JSON eliminadas: {ann_path}')
+            
+            # Eliminar archivo de anotaciones YOLO (.txt) si existe
+            # YOLO guarda las anotaciones en labels/ con el mismo nombre base
+            labels_dir = self._project_dir() / 'labels'
+            txt_ann_path = labels_dir / f"{match.stem}.txt"
+            if txt_ann_path.exists():
+                txt_ann_path.unlink()
+                print(f'[delete_image] Anotaciones YOLO (.txt) eliminadas: {txt_ann_path}')
+            
+            # Recargar lista de imágenes
+            self._load_images()
+            
+            return {
+                'ok': True,
+                'images': [img.name for img in self.images],
+                'deleted': filename
+            }
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def check_image_annotations(self, filename: str):
+        """Verifica si una imagen tiene anotaciones.
+        
+        Returns: {'ok': True, 'hasAnnotations': bool, 'count': int} o {'ok': False, 'error': '...'}
+        """
+        try:
+            self._ensure_project_open()
+            
+            ann_path = self.annotations_index.get(filename)
+            
+            if not ann_path or not ann_path.exists():
+                return {'ok': True, 'hasAnnotations': False, 'count': 0}
+            
+            # Contar anotaciones en el archivo
+            try:
+                with open(ann_path, 'r', encoding='utf-8') as f:
+                    annotations = json.load(f)
+                    count = len(annotations) if isinstance(annotations, list) else 0
+            except Exception:
+                count = 0
+            
+            return {
+                'ok': True,
+                'hasAnnotations': count > 0,
+                'count': count
+            }
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def select_folder_dialog(self, title: str = 'Seleccionar carpeta'):
+        """Abre un diálogo para seleccionar una carpeta.
+        
+        Returns: {'ok': True, 'path': '...'} o {'ok': False}
+        """
+        try:
+            window = webview.windows[0] if webview.windows else None
+            if not window:
+                return {'ok': False, 'error': 'No window context'}
+            
+            folder_type = getattr(webview, 'FOLDER_DIALOG', 2)
+            result = window.create_file_dialog(folder_type, directory='.')
+            
+            if not result:
+                return {'ok': False}
+            
+            # result puede ser una lista o una cadena
+            folder_path = result[0] if isinstance(result, (list, tuple)) else result
+            
+            return {'ok': True, 'path': str(folder_path)}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     def exit_app(self):
         """Cierra la aplicación pywebview.
@@ -2368,4 +2675,41 @@ class Api:
             return {'ok': True}
         except Exception as e:
             print(f"[clear_recent_projects] Error: {e}")
+            return {'ok': False, 'error': str(e)}
+
+    def open_user_manual(self) -> Dict[str, Any]:
+        """Abre el manual de usuario en PDF con el visor predeterminado del sistema"""
+        try:
+            # Obtener la ruta del manual
+            # El manual está en angular/public/manual.pdf
+            # Desde api.py, necesitamos subir al directorio raíz del proyecto
+            current_file = Path(__file__).resolve()  # .../python/app_core/api.py
+            project_root = current_file.parent.parent.parent  # Subir 3 niveles
+            manual_path = project_root / 'angular' / 'public' / 'manual.pdf'
+            
+            print(f"[open_user_manual] Buscando manual en: {manual_path}")
+            
+            if not manual_path.exists():
+                error_msg = f'Manual no encontrado en: {manual_path}'
+                print(f"[open_user_manual] ERROR: {error_msg}")
+                return {'ok': False, 'error': error_msg}
+            
+            # Abrir el PDF con el visor predeterminado del sistema
+            import platform
+            system = platform.system()
+            
+            if system == 'Windows':
+                os.startfile(str(manual_path))
+            elif system == 'Darwin':  # macOS
+                subprocess.run(['open', str(manual_path)])
+            else:  # Linux
+                subprocess.run(['xdg-open', str(manual_path)])
+            
+            print(f"[open_user_manual] Manual abierto correctamente")
+            return {'ok': True, 'path': str(manual_path)}
+            
+        except Exception as e:
+            print(f"[open_user_manual] Error: {e}")
+            import traceback
+            traceback.print_exc()
             return {'ok': False, 'error': str(e)}

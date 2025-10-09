@@ -1,5 +1,7 @@
 import { CreateProjectDialogComponent, NewProjectPayload } from './components/create-project-dialog/create-project-dialog.component';
-import { Component, computed, signal, OnInit, OnDestroy } from '@angular/core';
+import { ManageClassesDialogComponent } from './components/manage-classes-dialog/manage-classes-dialog.component';
+import { ManageImagesDialogComponent } from './components/manage-images-dialog/manage-images-dialog.component';
+import { Component, computed, signal, OnInit, OnDestroy, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HlmButtonImports } from '@spartan-ng/helm/button';
 import { HlmTabs, HlmTabsContent, HlmTabsList, HlmTabsTrigger } from '@spartan-ng/helm/tabs';
@@ -16,7 +18,22 @@ import { Resultado } from './pages/resultado/resultado';
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, HlmButtonImports, HlmTabs, HlmTabsContent, HlmTabsList, HlmTabsTrigger, Anotacion, Menubar, CreateProjectDialogComponent, Entrenamiento, Prediccion, Resultado],
+  imports: [
+    CommonModule,
+    HlmButtonImports,
+    HlmTabs,
+    HlmTabsContent,
+    HlmTabsList,
+    HlmTabsTrigger,
+    Anotacion,
+    Menubar,
+    CreateProjectDialogComponent,
+    ManageClassesDialogComponent,
+    ManageImagesDialogComponent,
+    Entrenamiento,
+    Prediccion,
+    Resultado
+  ],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
@@ -33,6 +50,10 @@ export class App implements OnInit, OnDestroy {
   readonly connectionStatusClass = computed(() => this.isConnected() ? 'bg-green-500' : 'bg-red-500');
 
   private disposers: (() => void)[] = [];
+
+  // Referencias a diálogos
+  readonly manageClassesDialog = viewChild(ManageClassesDialogComponent);
+  readonly manageImagesDialog = viewChild(ManageImagesDialogComponent);
 
   constructor(
     private pythonApi: PythonApiService,
@@ -56,10 +77,14 @@ export class App implements OnInit, OnDestroy {
     const offOpen = this.menu.on('abrir-proyecto', () => this.openProjectFromMenu());
     const offRecent = this.menu.on('abrir-reciente', (p: any) => this.openRecent(p));
     const offClearRec = this.menu.on('limpiar-recientes', () => this.recents.clear());
+    const offSave = this.menu.on('guardar-proyecto', () => this.saveProjectFromMenu());
     const offClose = this.menu.on('cerrar-proyecto', () => this.closeProjectFromMenu());
     const offSalir = this.menu.on('salir', () => this.exitApp());
     const offCargar = this.menu.on('cargar-imagenes', () => this.loadImagesFromMenu());
-    this.disposers.push(offOpen, offRecent, offClearRec, offClose, offSalir, offCargar);
+    const offGestionarClases = this.menu.on('gestionar-clases', () => this.openManageClassesDialog());
+    const offGestionarImagenes = this.menu.on('gestionar-imagenes', () => this.openManageImagesDialog());
+    const offDocumentacion = this.menu.on('documentacion', () => this.openUserManual());
+    this.disposers.push(offOpen, offRecent, offClearRec, offSave, offClose, offSalir, offCargar, offGestionarClases, offGestionarImagenes, offDocumentacion);
   }
 
   ngOnDestroy() {
@@ -162,6 +187,78 @@ export class App implements OnInit, OnDestroy {
     } catch (error) {
       console.error('❌ Error cerrando proyecto:', error);
       alert('Error al cerrar el proyecto: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  private async saveProjectFromMenu() {
+    if (!this.project.isOpen()) {
+      alert('No hay proyecto abierto para guardar.');
+      return;
+    }
+
+    try {
+      const result = await this.project.save();
+
+      if (result?.ok) {
+        // Mostrar estadísticas si están disponibles
+        let message = '✅ Proyecto guardado correctamente';
+        if (result.stats) {
+          const stats = result.stats;
+          message += `\n\n📊 Estadísticas del proyecto:`;
+          message += `\n   • Total de imágenes: ${stats.totalImages}`;
+          message += `\n   • Train: ${stats.trainImages}`;
+          message += `\n   • Validation: ${stats.valImages}`;
+          message += `\n   • Test: ${stats.testImages}`;
+          message += `\n   • Clases: ${stats.classes}`;
+        }
+
+        alert(message);
+        console.log('✅ Proyecto guardado correctamente');
+      } else {
+        const errorMsg = result?.error || 'Error desconocido';
+        console.error('❌ Error guardando proyecto:', errorMsg);
+        alert('Error al guardar el proyecto:\n' + errorMsg);
+      }
+    } catch (error) {
+      console.error('❌ Error guardando proyecto:', error);
+      alert('Error al guardar el proyecto:\n' + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  private openManageClassesDialog() {
+    if (!this.project.isOpen()) {
+      alert('Debe abrir un proyecto primero para gestionar clases.');
+      return;
+    }
+
+    const dialog = this.manageClassesDialog();
+    if (dialog) {
+      dialog.openDialog();
+    }
+  }
+
+  private openManageImagesDialog() {
+    if (!this.project.isOpen()) {
+      alert('Debe abrir un proyecto primero para gestionar imágenes.');
+      return;
+    }
+
+    const dialog = this.manageImagesDialog();
+    if (dialog) {
+      dialog.openDialog();
+    }
+  }
+
+  private async openUserManual() {
+    try {
+      const result = await this.pythonApi.call('open_user_manual');
+      if (!result?.ok) {
+        alert('Error abriendo manual de usuario: ' + (result?.error || 'Error desconocido'));
+      }
+      // Si ok = true, el PDF se abre en el visor externo - no se necesita alert
+    } catch (error) {
+      console.error('Error abriendo manual:', error);
+      alert('No se pudo abrir el manual: ' + (error instanceof Error ? error.message : String(error)));
     }
   }
 

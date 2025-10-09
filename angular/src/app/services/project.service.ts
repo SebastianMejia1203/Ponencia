@@ -49,6 +49,21 @@ export class ProjectService {
     this.currentIndex.set(0);
   }
 
+  async save(updatedClasses?: string[]) {
+    if (!this.isOpen()) {
+      return { ok: false, error: 'No hay proyecto abierto' };
+    }
+
+    // Si se proporcionan clases actualizadas, enviarlas al backend
+    const res = await this.api.call('save_project', updatedClasses);
+
+    if (res?.ok && res.project) {
+      // Actualizar la información del proyecto con los datos guardados
+      this.project.set(res.project);
+    }
+    return res;
+  }
+
   nextImage() {
     if (this.currentIndex() < this.images().length - 1) {
       this.currentIndex.update(i => i + 1);

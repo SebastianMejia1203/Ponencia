@@ -6,6 +6,7 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmDialog, HlmDialogContent, HlmDialogDescription, HlmDialogFooter, HlmDialogHeader, HlmDialogTitle } from '@spartan-ng/helm/dialog';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { ProjectService } from '../../services/project.service';
+import { PythonApiService } from '../../services/python-api.service';
 
 interface ClassData { label: string; value: string; color: string; }
 
@@ -21,7 +22,7 @@ interface ClassData { label: string; value: string; color: string; }
   template: `
   <hlm-dialog #dialogRef>
     <button #hiddenTrigger brnDialogTrigger hlmBtn variant="default" style="display:none;opacity:0;pointer-events:none;" [disabled]="true">Hidden</button>
-    <hlm-dialog-content class="sm:max-w-[500px] max-h-[90vh] flex flex-col" *brnDialogContent="let ctx">
+    <hlm-dialog-content class="sm:max-w-[600px] max-h-[90vh] flex flex-col" *brnDialogContent="let ctx">
       <hlm-dialog-header class="flex-shrink-0">
         <h3 hlmDialogTitle>Gestionar Clases</h3>
         <p hlmDialogDescription>Administre las clases de su proyecto.</p>
@@ -63,14 +64,14 @@ interface ClassData { label: string; value: string; color: string; }
             <button hlmBtn variant="ghost" class="w-full border-dashed" (click)="startAdd()">+ Agregar Nueva Clase</button>
           }
         </div>
-        <div class="flex-shrink-0 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+        <div class="flex-shrink-0 p-3 bg-gray-50 rounded-lg text-sm text-gray-600 w-[400px]">
           <p><strong>Total de clases:</strong> {{ classes().length }}</p>
           <p class="text-xs mt-1">Los colores se asignan automáticamente.</p>
         </div>
       </div>
       <hlm-dialog-footer class="flex gap-2 flex-shrink-0 border-t pt-4">
         <button hlmBtn variant="outline" (click)="cancelChanges(ctx)" type="button">Cancelar</button>
-        <button hlmBtn variant="default" (click)="saveChanges(ctx)" type="submit">Guardar Cambios</button>
+        <button hlmBtn variant="default" (click)="saveChanges(ctx)" type="submit">Guardar</button>
       </hlm-dialog-footer>
     </hlm-dialog-content>
   </hlm-dialog>
@@ -78,15 +79,19 @@ interface ClassData { label: string; value: string; color: string; }
 })
 export class ManageClassesDialogComponent {
   private projectService = inject(ProjectService);
+  private pythonApi = inject(PythonApiService);
+
   classes = signal<ClassData[]>([]);
   editingIndex = signal<number>(-1);
   addingNew = signal<boolean>(false);
   editingName = '';
   newClassName = '';
+
   private availableColors = [
     'bg-red-500','bg-blue-500','bg-green-500','bg-yellow-500','bg-purple-500','bg-pink-500','bg-indigo-500','bg-gray-500','bg-orange-500','bg-teal-500','bg-cyan-500','bg-lime-500'
   ];
   private isDialogOpen = false;
+
   @ViewChild('hiddenTrigger',{static:false}) hiddenTrigger!: any;
 
   openDialog(){
@@ -134,19 +139,88 @@ export class ManageClassesDialogComponent {
     }));
   }
   startEdit(i:number,name:string){ this.editingIndex.set(i); this.editingName=name; }
-  saveEdit(i:number){ if(this.editingName.trim()){ const cls=[...this.classes()]; cls[i]={...cls[i],label:this.editingName.trim(),value:this.editingName.trim().toLowerCase().replace(/\s+/g,'-')}; this.classes.set(cls);} this.cancelEdit(); }
+  saveEdit(i:number){
+    if(this.editingName.trim()){
+      const cls=[...this.classes()];
+      cls[i]={...cls[i],label:this.editingName.trim(),value:this.editingName.trim().toLowerCase().replace(/\s+/g,'-')};
+      this.classes.set(cls);
+    }
+    this.cancelEdit();
+  }
   cancelEdit(){ this.editingIndex.set(-1); this.editingName=''; }
-  removeClass(i:number){ if(this.classes().length>1){ const cls=[...this.classes()]; cls.splice(i,1); this.classes.set(cls);} }
+
+  async removeClass(i:number){
+    if(this.classes().length <= 1) return;
+
+    const classToRemove = this.classes()[i];
+
+    // Verificar si hay anotaciones con esta clase
+    const hasAnnotations = await this.checkClassHasAnnotations(classToRemove.label);
+
+    if (hasAnnotations) {
+      alert(`No se puede eliminar la clase "${classToRemove.label}" porque tiene anotaciones asociadas.\n\nPrimero debe eliminar todas las anotaciones de esta clase.`);
+      return;
+    }
+
+    const cls=[...this.classes()];
+    cls.splice(i,1);
+    this.classes.set(cls);
+  }
+
+  private async checkClassHasAnnotations(className: string): Promise<boolean> {
+    try {
+      if (!this.pythonApi.apiReady()) return false;
+
+      const images = this.projectService.images();
+
+      for (const imageName of images) {
+        const annotations = await this.pythonApi.call('load_annotations', imageName);
+        if (annotations && Array.isArray(annotations)) {
+          const hasClass = annotations.some((ann: any) => ann.className === className);
+          if (hasClass) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error verificando anotaciones:', error);
+      return false; // En caso de error, permitir eliminación
+    }
+  }
+
   startAdd(){ this.addingNew.set(true); this.newClassName=''; }
   addNewClass(){ if(this.newClassName.trim()){ const cls=[...this.classes()]; cls.push({label:this.newClassName.trim(),value:this.newClassName.trim().toLowerCase().replace(/\s+/g,'-'), color:this.availableColors[cls.length % this.availableColors.length]}); this.classes.set(cls); this.cancelAdd(); } }
   cancelAdd(){ this.addingNew.set(false); this.newClassName=''; }
   async saveChanges(ctx:any){
-    const classNames = this.classes().map(c=>c.label);
-    // Actualizar el project local (no hay API específica todavía) -> sobrescribir en señal
-    const proj = this.projectService.project();
-    if(proj){ this.projectService.project.set({...proj, classes: classNames}); }
-    document.dispatchEvent(new CustomEvent('classes-updated',{detail:{classNames}}));
-    this.onDialogClose(); ctx.close();
+    try {
+      const classNames = this.classes().map(c=>c.label);
+
+      // Guardar proyecto en backend con las clases actualizadas
+      // El backend actualizará data.yaml y project_config.json
+      const result = await this.projectService.save(classNames);
+
+      if (result?.ok) {
+        console.log('✅ Clases actualizadas y proyecto guardado correctamente');
+        console.log('📋 Clases guardadas:', classNames);
+
+        // Emitir evento para que otros componentes se actualicen
+        // Usamos las clases del resultado del backend (source of truth)
+        const savedClasses = result.project?.classes || classNames;
+        document.dispatchEvent(new CustomEvent('classes-updated',{detail:{classNames: savedClasses}}));
+
+        this.onDialogClose();
+        ctx.close();
+      } else {
+        const errorMsg = result?.error || 'Error desconocido';
+        console.error('❌ Error guardando clases:', errorMsg);
+        alert('Error al guardar las clases:\n' + errorMsg);
+      }
+    } catch (error) {
+      console.error('❌ Error guardando clases:', error);
+      alert('Error al guardar las clases:\n' + (error instanceof Error ? error.message : String(error)));
+    }
   }
   cancelChanges(ctx:any){ this.onDialogClose(); ctx.close(); }
 }

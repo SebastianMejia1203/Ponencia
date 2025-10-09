@@ -71,6 +71,9 @@ export class AnnotationService {
       const pythonApi = this.api.requireApi();
       const imageFilenames = await pythonApi.list_images();
 
+      // Guardar el índice actual antes de actualizar
+      const currentIndex = this.currentImageIndexSubject.value;
+
       // Crear objetos ImageData
       const images: ImageData[] = imageFilenames.map((filename: string) => ({
         path: filename,
@@ -82,7 +85,21 @@ export class AnnotationService {
       this.hasImagesSubject.next(images.length > 0);
 
       if (images.length > 0) {
-        this.currentImageIndexSubject.next(0);
+        // Ajustar el índice actual si está fuera de rango
+        let newIndex = currentIndex;
+        if (currentIndex >= images.length) {
+          // Si el índice actual está fuera de rango, ir a la última imagen
+          newIndex = images.length - 1;
+        }
+
+        // Solo actualizar el índice si cambió
+        if (newIndex !== currentIndex) {
+          this.currentImageIndexSubject.next(newIndex);
+        } else {
+          // Forzar la recarga de la imagen actual para actualizar la UI
+          this.currentImageIndexSubject.next(newIndex);
+        }
+
         await this.loadAnnotationsForCurrentImage();
       } else {
         this.currentImageIndexSubject.next(0);

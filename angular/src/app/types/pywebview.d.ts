@@ -44,6 +44,7 @@ export interface PyWebviewApi {
   ): Promise<{ ok: boolean; project: any; images: string[] }>;
   open_project(path: string): Promise<{ ok: boolean; project: any; images: string[] }>;
   close_project(): Promise<{ ok: boolean }>;
+  save_project(classes?: string[]): Promise<{ ok: boolean; project?: any; stats?: any; error?: string }>;
   list_images(): Promise<string[]>;
   get_image_base64(filename: string): Promise<{ ok: boolean; dataUrl?: string; filename?: string; error?: string }>; // data URL envuelta
   load_annotations(filename: string): Promise<any[]>; // array de anotaciones
@@ -57,6 +58,27 @@ export interface PyWebviewApi {
   /** Diálogo multi-selección de imágenes, retorna rutas */
   select_images_dialog(title?: string): Promise<{ ok: boolean; paths?: string[]; error?: string }>;
   /** Copia rutas de imágenes al dataset del proyecto */
+  copy_image_paths(paths: string[]): Promise<{ ok: boolean; copied: number; images: string[]; elapsed?: number; error?: string }>;
+  /** Obtiene estadísticas e información detallada de una imagen */
+  get_image_stats(filename: string): Promise<{
+    ok: boolean;
+    stats?: {
+      filename: string;
+      path: string;
+      size: number;
+      dimensions?: { width: number; height: number };
+      hasAnnotations: boolean;
+      modified: number
+    };
+    error?: string
+  }>;
+  /** Elimina una imagen y sus anotaciones del proyecto */
+  delete_image(filename: string): Promise<{ ok: boolean; images?: string[]; deleted?: string; error?: string }>;
+  /** Verifica si una imagen tiene anotaciones */
+  check_image_annotations(filename: string): Promise<{ ok: boolean; hasAnnotations?: boolean; count?: number; error?: string }>;
+  /** Abre diálogo para seleccionar una carpeta */
+  select_folder_dialog(title?: string): Promise<{ ok: boolean; path?: string; error?: string }>;
+  /** Cierra la aplicación */
   copy_image_paths(paths: string[]): Promise<{ ok: boolean; copied: number; images: string[]; elapsed?: number }>;
   /** Obtiene recursos del sistema (CPU, memoria, GPU, etc.) */
   get_system_resources(): Promise<SystemResources>;
@@ -66,6 +88,8 @@ export interface PyWebviewApi {
   add_recent_project(name: string, configPath: string): Promise<{ ok: boolean; projects?: RecentProject[]; error?: string }>;
   /** Limpia la lista de proyectos recientes */
   clear_recent_projects(): Promise<{ ok: boolean; error?: string }>;
+  /** Abre el manual de usuario en PDF */
+  open_user_manual(): Promise<{ ok: boolean; path?: string; error?: string }>;
   exit_app(): Promise<{ ok: boolean; error?: string }>;
 }
 

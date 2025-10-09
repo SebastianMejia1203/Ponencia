@@ -265,36 +265,61 @@ export class Anotacion implements OnInit, OnDestroy {
     document.addEventListener('images-loaded', imagesLoadedListener as EventListener);
     this.eventListeners.push(() => document.removeEventListener('images-loaded', imagesLoadedListener as EventListener));
 
+    // Escuchar cuando se actualizan/eliminan imágenes
+    const imagesUpdatedListener = (event: CustomEvent) => {
+      console.log('🗑️ Imágenes actualizadas (eliminadas):', event.detail);
+      // Recargar las imágenes del proyecto para reflejar los cambios
+      this.annotationService.loadProjectImages();
+
+      // CRÍTICO: Forzar actualización de UI después de eliminar imágenes
+      setTimeout(() => {
+        this.cdr.detectChanges();
+      }, 300);
+    };
+    document.addEventListener('images-updated', imagesUpdatedListener as EventListener);
+    this.eventListeners.push(() => document.removeEventListener('images-updated', imagesUpdatedListener as EventListener));
+
     // Escuchar cuando se actualizan las clases
     const classesUpdatedListener = (event: CustomEvent) => {
       console.log('🔄 Clases actualizadas:', event.detail);
 
-      // Actualizar las clases locales
-      this.loadProjectConfiguration();
+      // Usar las clases del evento directamente (source of truth)
+      const updatedClassNames = event.detail?.classNames;
+      if (updatedClassNames && Array.isArray(updatedClassNames)) {
+        console.log('📋 Actualizando clases desde evento:', updatedClassNames);
 
-      // Si la clase actual no existe más, resetear la selección
-      const currentClass = this.currentClassData();
-      if (currentClass) {
-        const classStillExists = this.classes.find(c => c.value === currentClass.value);
-        if (!classStillExists) {
-          // La clase actual ya no existe, seleccionar la primera disponible
-          if (this.classes.length > 0) {
-            const firstClass = this.classes[0];
-            this.currentClassData.set(firstClass);
-            this.selectedClass = firstClass.value;
-          } else {
-            this.currentClassData.set(undefined);
-            this.selectedClass = '';
+        // Generar datos de clase desde los nombres actualizados
+        this.classes = this.generateClassesFromProject(updatedClassNames);
+
+        // Actualizar la señal de clase actual
+        const currentClass = this.currentClassData();
+        if (currentClass) {
+          const classStillExists = this.classes.find(c => c.value === currentClass.value);
+          if (!classStillExists) {
+            // La clase actual ya no existe, seleccionar la primera disponible
+            if (this.classes.length > 0) {
+              const firstClass = this.classes[0];
+              this.currentClassData.set(firstClass);
+              this.selectedClass = firstClass.value;
+              console.log('✨ Clase actual eliminada, seleccionando:', firstClass.label);
+            } else {
+              this.currentClassData.set(undefined);
+              this.selectedClass = '';
+            }
           }
+        } else if (this.classes.length > 0) {
+          // No hay clase seleccionada, seleccionar la primera
+          const firstClass = this.classes[0];
+          this.currentClassData.set(firstClass);
+          this.selectedClass = firstClass.value;
+          console.log('✨ Seleccionando primera clase:', firstClass.label);
         }
-      } else if (this.classes.length > 0) {
-        // No había clase seleccionada, seleccionar la primera
-        const firstClass = this.classes[0];
-        this.currentClassData.set(firstClass);
-        this.selectedClass = firstClass.value;
+      } else {
+        // Fallback: cargar desde la configuración del proyecto
+        console.log('⚠️ No se recibieron clases en el evento, cargando desde proyecto');
+        this.loadProjectConfiguration();
       }
 
-      // CRÍTICO: Forzar detección de cambios para actualizar el combobox
       this.cdr.detectChanges();
     };
     document.addEventListener('classes-updated', classesUpdatedListener as EventListener);
@@ -536,6 +561,29 @@ export class Anotacion implements OnInit, OnDestroy {
         return;
       }
 
+      // CRÍTICO: Validar y ajustar límites de la caja antes de guardar
+      let bbox = { ...this.currentBoundingBox };
+
+      // Asegurar que la caja esté completamente dentro de los límites de la imagen
+      bbox.x = Math.max(0, bbox.x);
+      bbox.y = Math.max(0, bbox.y);
+
+      // Ajustar ancho y alto si exceden los límites
+      if (bbox.x + bbox.width > this.imageWidth) {
+        bbox.width = this.imageWidth - bbox.x;
+      }
+
+      if (bbox.y + bbox.height > this.imageHeight) {
+        bbox.height = this.imageHeight - bbox.y;
+      }
+
+      // Verificar que después de los ajustes la caja sigue siendo válida
+      if (bbox.width <= 10 || bbox.height <= 10) {
+        alert('La caja es demasiado pequeña después de ajustar los límites');
+        this.clearBoundingBox();
+        return;
+      }
+
       // Encontrar el ID de clase
       const className = this.currentClassData()!.label;
       const classIndex = currentProject.classes?.findIndex(name => name === className) || 0;
@@ -545,8 +593,8 @@ export class Anotacion implements OnInit, OnDestroy {
         return;
       }
 
-      // Convertir a coordenadas normalizadas si es necesario
-      const normalizedBbox = this.boundingBoxToNormalized(this.currentBoundingBox);
+      // Convertir a coordenadas normalizadas
+      const normalizedBbox = this.boundingBoxToNormalized(bbox);
 
       const annotation: AnnotationBoundingBox = {
         id: Date.now(), // ID único temporal
@@ -716,12 +764,20 @@ export class Anotacion implements OnInit, OnDestroy {
     if (!this.imageElement) return;
 
     const img = this.imageElement.nativeElement;
-    this.imageWidth = img.naturalWidth;
-    this.imageHeight = img.naturalHeight;
+
+    // IMPORTANTE: Usar dimensiones RENDERIZADAS, no naturalWidth/naturalHeight
+    // porque object-fit: contain escala la imagen para que quepa en el contenedor
+    this.imageWidth = img.getBoundingClientRect().width;
+    this.imageHeight = img.getBoundingClientRect().height;
     this.imageLoaded = true;
 
-    // Establecer dimensiones en el servicio para normalizaciones futuras
-    this.annotationService.setImageDimensions(this.imageWidth, this.imageHeight);
+    console.log(`🖼️ Imagen cargada:`, {
+      original: `${img.naturalWidth}x${img.naturalHeight}`,
+      rendered: `${this.imageWidth}x${this.imageHeight}`
+    });
+
+    // Establecer dimensiones ORIGINALES en el servicio para normalizaciones
+    this.annotationService.setImageDimensions(img.naturalWidth, img.naturalHeight);
 
     // CRÍTICO: Forzar detección de cambios después de cargar la imagen
     this.cdr.detectChanges();
@@ -802,14 +858,21 @@ export class Anotacion implements OnInit, OnDestroy {
    * Actualizar coordenadas del mouse teniendo en cuenta las transformaciones
    */
   private updateMouseCoordinates(event: MouseEvent): void {
-    if (!this.imageElement?.nativeElement) return;
+    if (!this.imageElement?.nativeElement || !this.imageLoaded) return;
 
     const rect = this.imageElement.nativeElement.getBoundingClientRect();
     const scale = this.zoomLevel / 100;
 
     // Calcular posición relativa en la imagen
-    const x = (event.clientX - rect.left - this.panX) / scale;
-    const y = (event.clientY - rect.top - this.panY) / scale;
+    const x = (event.clientX - rect.left) / scale;
+    const y = (event.clientY - rect.top) / scale;
+
+    // Verificar si está dentro de los límites
+    if (x < 0 || y < 0 || x > this.imageWidth || y > this.imageHeight) {
+      this.mouseImageX = -1;
+      this.mouseImageY = -1;
+      return;
+    }
 
     this.mouseImageX = Math.round(x);
     this.mouseImageY = Math.round(y);
@@ -848,34 +911,39 @@ export class Anotacion implements OnInit, OnDestroy {
 
   /**
    * Manejar clicks para polígonos
+   * Los puntos se restringen automáticamente dentro de la imagen
    */
   private handlePolygonClick(imagePoint: { x: number, y: number }): void {
-    // Agregar punto al polígono actual
-    this.currentPolygonPoints.push({
-      x: imagePoint.x,
-      y: imagePoint.y
-    });
+    // Verificar que las coordenadas están dentro de los límites
+    // (viewportToImageCoordinates ya restringe las coordenadas, pero verificamos por seguridad)
+    const clampedPoint = {
+      x: Math.max(0, Math.min(this.imageWidth, imagePoint.x)),
+      y: Math.max(0, Math.min(this.imageHeight, imagePoint.y))
+    };
 
-    console.log(`📍 Punto agregado: (${imagePoint.x}, ${imagePoint.y}). Total: ${this.currentPolygonPoints.length}`);
+    // Agregar punto al polígono actual
+    this.currentPolygonPoints.push(clampedPoint);
+
+    console.log(`📍 Punto agregado: (${clampedPoint.x}, ${clampedPoint.y}). Total: ${this.currentPolygonPoints.length}`);
   }
 
   /**
    * Convertir coordenadas del viewport a coordenadas de la imagen original
-   * Ahora tiene en cuenta las transformaciones de pan y zoom correctamente
+   * Tiene en cuenta las transformaciones de pan y zoom correctamente
    */
   private viewportToImageCoordinates(event: MouseEvent): { x: number, y: number } | null {
-    if (!this.imageElement?.nativeElement) return null;
+    if (!this.imageElement?.nativeElement || !this.imageLoaded) return null;
 
     const rect = this.imageElement.nativeElement.getBoundingClientRect();
     const scale = this.zoomLevel / 100;
 
     // Calcular coordenadas considerando transformaciones
-    const x = (event.clientX - rect.left - this.panX) / scale;
-    const y = (event.clientY - rect.top - this.panY) / scale;
+    const x = (event.clientX - rect.left) / scale;
+    const y = (event.clientY - rect.top) / scale;
 
-    // Validar que esté dentro de los límites de la imagen
+    // Validar que esté ESTRICTAMENTE dentro de los límites de la imagen
     if (x < 0 || y < 0 || x > this.imageWidth || y > this.imageHeight) {
-      return null;
+      return null; // Rechazar cualquier punto fuera de los límites
     }
 
     return { x, y };
@@ -899,6 +967,7 @@ export class Anotacion implements OnInit, OnDestroy {
 
   /**
    * Manejar dibujo de bounding box
+   * Las coordenadas se restringen automáticamente dentro de la imagen
    */
   private handleBoundingBoxDrawing(event: MouseEvent): void {
     if (!this.isDrawingBoundingBox || !this.boundingBoxStartPoint) return;
@@ -907,10 +976,33 @@ export class Anotacion implements OnInit, OnDestroy {
     if (!currentPoint) return;
 
     // Calcular dimensiones de la caja
-    const x = Math.min(this.boundingBoxStartPoint.x, currentPoint.x);
-    const y = Math.min(this.boundingBoxStartPoint.y, currentPoint.y);
-    const width = Math.abs(this.boundingBoxStartPoint.x - currentPoint.x);
-    const height = Math.abs(this.boundingBoxStartPoint.y - currentPoint.y);
+    let x = Math.min(this.boundingBoxStartPoint.x, currentPoint.x);
+    let y = Math.min(this.boundingBoxStartPoint.y, currentPoint.y);
+    let width = Math.abs(this.boundingBoxStartPoint.x - currentPoint.x);
+    let height = Math.abs(this.boundingBoxStartPoint.y - currentPoint.y);
+
+    // CRÍTICO: Asegurar que la caja no se salga de los límites de la imagen
+    // Ajustar x si la caja se sale por la izquierda
+    if (x < 0) {
+      width = width + x; // Reducir el ancho
+      x = 0;
+    }
+
+    // Ajustar y si la caja se sale por arriba
+    if (y < 0) {
+      height = height + y; // Reducir la altura
+      y = 0;
+    }
+
+    // Ajustar width si la caja se sale por la derecha
+    if (x + width > this.imageWidth) {
+      width = this.imageWidth - x;
+    }
+
+    // Ajustar height si la caja se sale por abajo
+    if (y + height > this.imageHeight) {
+      height = this.imageHeight - y;
+    }
 
     this.currentBoundingBox = { x, y, width, height };
   }
