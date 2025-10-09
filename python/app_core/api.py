@@ -1107,6 +1107,10 @@ class Api:
 
         self.current_project = p
         self._load_images()
+        
+        # Agregar configPath para que el frontend pueda registrar en recientes
+        config['configPath'] = str(p / PROJECT_STATE_FILE)
+        
         return {'ok': True, 'project': config, 'images': [img.name for img in self.images]}
 
     def open_project(self, path: str):
@@ -1146,6 +1150,9 @@ class Api:
         
         self.current_project = p
         self._load_images()
+        
+        # Agregar configPath para que el frontend pueda registrar en recientes
+        config['configPath'] = str(cfg_path)
         
         print(f'✅ [open_project] Proyecto abierto: {config["name"]}')
         print(f'   📁 Ubicación: {p}')

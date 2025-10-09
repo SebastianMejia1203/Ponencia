@@ -4,6 +4,7 @@ import { PythonApiService } from './python-api.service';
 export interface ProjectInfo {
   name: string;
   root: string;
+  configPath?: string; // Ruta al project_config.json para agregar a recientes
   createdAt?: string;
   classes?: string[];
   task?: 'detect' | 'segment';

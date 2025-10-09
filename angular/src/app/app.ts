@@ -111,9 +111,11 @@ export class App implements OnInit, OnDestroy {
       const res = await this.project.open(sel.path);
       if (res?.ok) {
         this.projectName.set(this.project.project()?.name || 'Proyecto');
-        // registrar en recientes
-        const cfgPath = sel.path.endsWith('project_config.json') ? sel.path : (sel.path + '/project_config.json');
-        await this.recents.touch(this.project.project()?.name || 'Proyecto', cfgPath);
+        // Registrar en recientes usando configPath del proyecto
+        const projectInfo = this.project.project();
+        if (projectInfo?.configPath) {
+          await this.recents.touch(projectInfo.name, projectInfo.configPath);
+        }
       } else {
         alert('No se pudo abrir el proyecto.');
       }
@@ -139,7 +141,16 @@ export class App implements OnInit, OnDestroy {
       data.classes,
       data.task,
       data.meta
-    ).then(res => { if (res?.ok) this.projectName.set(data.name); });
+    ).then(res => { 
+      if (res?.ok) {
+        this.projectName.set(data.name);
+        // Registrar proyecto nuevo en recientes
+        const projectInfo = this.project.project();
+        if (projectInfo?.configPath) {
+          this.recents.touch(data.name, projectInfo.configPath);
+        }
+      }
+    });
   }
 
   private async openRecent(payload: { configPath: string }) {
@@ -148,7 +159,11 @@ export class App implements OnInit, OnDestroy {
       const res = await this.project.open(payload.configPath);
       if (res?.ok) {
         this.projectName.set(this.project.project()?.name || 'Proyecto');
-        await this.recents.touch(this.project.project()?.name || 'Proyecto', payload.configPath);
+        // Actualizar timestamp en recientes
+        const projectInfo = this.project.project();
+        if (projectInfo?.configPath) {
+          await this.recents.touch(projectInfo.name, projectInfo.configPath);
+        }
       } else {
         alert('No se pudo abrir el proyecto reciente.');
       }
