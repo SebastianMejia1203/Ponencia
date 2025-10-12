@@ -1,42 +1,18 @@
 # ====================================================================
-# YOLO Annotator - Dependencias de Python
-# ====================================================================
-# 
-# Este archivo contiene todas las librerías necesarias para ejecutar
-# la aplicación de anotación YOLO.
-#
 # Instalación:
 #   pip install -r requirements.txt
-#
 # ====================================================================
 
-# Interfaz de aplicación de escritorio
 pywebview>=4.4.0
-
-# Procesamiento de imágenes
 Pillow>=10.0.0
-
-# Lectura y escritura de archivos YAML (para data.yaml de YOLO)
 PyYAML>=6.0.1
-
-# Monitoreo de recursos del sistema
 psutil>=5.9.0
-
-# Monitoreo de GPU (opcional, útil para entrenamientos futuros)
 gputil>=1.4.0
 
-# Solicitudes HTTP (usado en webs.py para descargar contenido)
-requests>=2.31.0
-
 # ====================================================================
-# NOTAS:
-# ====================================================================
-# 
 # 1. pywebview: Crea la ventana de la aplicación de escritorio
 # 2. Pillow: Procesa imágenes (redimensionar, convertir, thumbnails)
 # 3. PyYAML: Lee/escribe data.yaml (formato estándar de YOLO)
 # 4. psutil: Obtiene información de CPU, RAM, disco
 # 5. gputil: Obtiene información de GPUs disponibles
-# 6. requests: Descarga contenido web (usado en webs.py)
-#
 # ====================================================================
